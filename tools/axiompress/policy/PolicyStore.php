@@ -35,6 +35,9 @@ final class PolicyStore
             if ($version !== 1) {
                 throw new RuntimeException('Unsupported read-only policy schema.');
             }
+            if ($this->db->query('PRAGMA journal_mode')->fetchColumn() !== 'delete') {
+                throw new RuntimeException('Operator preparation of DELETE policy journaling required.');
+            }
             $this->db->exec('PRAGMA query_only=ON');
             return;
         }
@@ -65,7 +68,12 @@ final class PolicyStore
                 throw $error;
             }
         }
-        $this->db->exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
+        // Rollback journaling permits truly read-only service mounts without writable WAL/SHM
+        // sidecars. Never use immutable=1: it would bypass live revocation/locking visibility.
+        if ($this->db->query('PRAGMA journal_mode=DELETE')->fetchColumn() !== 'delete') {
+            throw new RuntimeException('Read-only-compatible policy journaling required.');
+        }
+        $this->db->exec('PRAGMA synchronous=FULL');
     }
 
     public function register(ImageBinding $binding): void

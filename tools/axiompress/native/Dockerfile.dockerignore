@@ -1,0 +1,9 @@
+# Native build context contains only the fixed core and its trusted CLI renderer.
+**
+!src
+!src/axiompress
+!src/axiompress/**
+!tools
+!tools/axiompress
+!tools/axiompress/native
+!tools/axiompress/native/render.php

@@ -13,3 +13,4 @@ require_once __DIR__ . '/PublicContentRepository.php';
 require_once __DIR__ . '/Response.php';
 require_once __DIR__ . '/Kernel.php';
 require_once __DIR__ . '/ComponentRenderer.php';
+require_once __DIR__ . '/ExtensionClient.php';

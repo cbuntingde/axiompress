@@ -28,13 +28,24 @@ final class Supervisor
         string $site,
         Closure $canRead,
         Closure $read,
-        string $admissionDirectory = '/admission'
+        string $admissionDirectory = '/admission',
+        string $runtime = 'runc',
+        ?string $journalDirectory = null,
+        ?string $pool = null
     ): self {
         $record = $policy->resolve($installation, $site);
         $image = $record['image'];
         $registry = new InvocationRegistry(static fn(string $id, string $requestedSite): ?int =>
             $id === $installation && $requestedSite === $site ? $policy->generation($id, $site, $image) : null);
-        $supervisor = new self($image, $registry, new ContentBroker($registry, $canRead, $read));
+        $supervisor = new self(
+            $image,
+            $registry,
+            new ContentBroker($registry, $canRead, $read),
+            'reading',
+            $runtime,
+            $journalDirectory,
+            $pool
+        );
         $supervisor->admission = new AdmissionGate($admissionDirectory);
         return $supervisor;
     }
@@ -48,7 +59,10 @@ final class Supervisor
         private readonly string $image,
         private readonly InvocationRegistry $registry,
         private readonly ContentBroker $broker,
-        private readonly string $mode = 'reading'
+        private readonly string $mode = 'reading',
+        private readonly string $runtime = 'runc',
+        private readonly ?string $journalDirectory = null,
+        private readonly ?string $pool = null
     ) {
         if (
             PHP_OS_FAMILY !== 'Linux' || !extension_loaded('pcntl')
@@ -61,6 +75,21 @@ final class Supervisor
             'memory', 'crash', 'fork', 'extra', 'forged', 'stdout'), true)
         ) {
             throw new RuntimeException('Unknown trusted worker fixture.');
+        }
+        if (!in_array($runtime, array('runc', 'runsc'), true)) {
+            throw new RuntimeException('Unsupported trusted runtime.');
+        }
+        if (
+            $journalDirectory !== null && (!is_dir($journalDirectory) || is_link($journalDirectory)
+            || !str_starts_with($journalDirectory, '/'))
+        ) {
+            throw new RuntimeException('Private worker journal required.');
+        }
+        if (
+            ($journalDirectory === null) !== ($pool === null)
+            || ($pool !== null && !preg_match('/\A[a-f0-9]{32}\z/D', $pool))
+        ) {
+            throw new RuntimeException('Dedicated service pool identity required.');
         }
     }
 
@@ -96,16 +125,20 @@ final class Supervisor
         )[0];
     }
 
-    public static function reconcile(): void
+    public static function reconcile(?string $pool = null): void
     {
-        foreach (self::remainingWorkers() as $id) {
+        foreach (self::remainingWorkers($pool) as $id) {
             self::command(array('docker', 'rm', '-f', $id), 3);
         }
     }
 
-    public static function remainingWorkers(): array
+    public static function remainingWorkers(?string $pool = null): array
     {
-        $ids = trim(self::command(array('docker', 'ps', '-aq', '--filter', 'label=' . self::LABEL), 3));
+        if ($pool !== null && !preg_match('/\A[a-f0-9]{32}\z/D', $pool)) {
+            throw new RuntimeException('Invalid service pool.');
+        }
+        $label = $pool === null ? self::LABEL : 'dev.axiompress.service=' . $pool;
+        $ids = trim(self::command(array('docker', 'ps', '-aq', '--filter', 'label=' . $label), 3));
         $result = preg_split('/\s+/', $ids, -1, PREG_SPLIT_NO_EMPTY);
         foreach ($result as $id) {
             if (!preg_match('/\A[a-f0-9]{12,64}\z/D', $id)) {
@@ -129,6 +162,8 @@ final class Supervisor
     private function runWorker(string $installation, string $site, string $actor, string $contentId): stdClass
     {
         $name = 'axiompress-worker-' . bin2hex(random_bytes(12));
+        $label = $this->pool === null ? self::LABEL : 'dev.axiompress.service=' . $this->pool;
+        $journal = $this->journalDirectory === null ? null : $this->journalDirectory . '/' . $name;
         $handle = $this->registry->issue($name, $installation, $site, $actor, array($contentId));
         $deadline = hrtime(true) + 5_000_000_000;
         $process = null;
@@ -154,16 +189,26 @@ final class Supervisor
             // No mounts, network, daemon socket, caller environment or package-supplied runtime flags.
             $createAttempted = true;
             $this->cleanupConfirmed = false;
+            if ($journal !== null) {
+                self::journal($journal, 'creating');
+            }
+            // gVisor needs host tasks for its userspace kernel/gofer. Bound those separately
+            // separately: the guest's hard nproc limit cannot be raised by its UID.
+            $pidsLimit = $this->runtime === 'runsc' ? 64 : 16;
             self::command(array(
-                'docker', 'create', '--pull=never', '--name', $name, '--label', self::LABEL, '--runtime=runc',
+                'docker', 'create', '--pull=never', '--name', $name, '--label', $label, '--runtime=' . $this->runtime,
                 '--read-only', '--network=none', '--ipc=none', '--cap-drop=ALL',
                 '--security-opt=no-new-privileges:true', '--user=10001:10001',
-                '--memory=128m', '--memory-swap=128m', '--cpus=0.5', '--pids-limit=16',
+                '--memory=128m', '--memory-swap=128m', '--cpus=0.5', '--pids-limit=' . $pidsLimit,
                 '--ulimit=nofile=64:64', '--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=64m',
+                ...($this->runtime === 'runsc' ? array('--ulimit=nproc=16:16') : array()),
                 '--log-driver=none', '--stop-timeout=1', '-i',
                 '--env', 'AXIOM_WORKER_MODE=' . $this->mode, $this->image,
             ), 3);
             $created = true;
+            if ($journal !== null) {
+                self::journal($journal, 'created');
+            }
             $inspection = json_decode(
                 self::command(array('docker', 'inspect', $name), 1),
                 true,
@@ -171,14 +216,19 @@ final class Supervisor
                 JSON_THROW_ON_ERROR
             );
             $host = $inspection[0]['HostConfig'];
+            $softLimits = array_column($host['Ulimits'], 'Soft', 'Name');
+            $hardLimits = array_column($host['Ulimits'], 'Hard', 'Name');
             if (
                 $inspection[0]['Image'] !== $this->image
                 || !$host['ReadonlyRootfs'] || $host['NetworkMode'] !== 'none' || $host['Memory'] !== 134217728
-                || $host['MemorySwap'] !== 134217728 || $host['PidsLimit'] !== 16
+                || $host['MemorySwap'] !== 134217728 || $host['PidsLimit'] !== $pidsLimit
                 || $host['NanoCpus'] !== 500000000 || $host['CapDrop'] !== array('ALL')
                 || !in_array('no-new-privileges:true', $host['SecurityOpt'], true)
-                || $host['Privileged'] || $host['Runtime'] !== 'runc' || $host['IpcMode'] !== 'none'
+                || $host['Privileged'] || $host['Runtime'] !== $this->runtime || $host['IpcMode'] !== 'none'
                 || $inspection[0]['Mounts'] !== array() || $inspection[0]['Config']['User'] !== '10001:10001'
+                || ($softLimits['nofile'] ?? null) !== 64 || ($hardLimits['nofile'] ?? null) !== 64
+                || ($this->runtime === 'runsc' && (($softLimits['nproc'] ?? null) !== 16
+                    || ($hardLimits['nproc'] ?? null) !== 16))
             ) {
                 throw new RuntimeException('Runtime profile mismatch.');
             }
@@ -327,7 +377,7 @@ final class Supervisor
                 if ($createAttempted && !$created) {
                     // A failed/timeout client command may still have created a daemon-side object.
                     $found = self::command(array('docker', 'ps', '-aq', '--filter',
-                        'label=' . self::LABEL, '--filter', 'name=^/' . $name . '$'), 1);
+                        'label=' . $label, '--filter', 'name=^/' . $name . '$'), 1);
                     $created = trim($found) !== '';
                 }
                 if ($created) {
@@ -340,7 +390,27 @@ final class Supervisor
                     }
                 }
                 $this->cleanupConfirmed = $created;
+                // A timed-out create can complete later in the daemon. Retain its intent even
+                // when an immediate inventory is empty; restart must not silently free capacity.
+                if ($journal !== null && $created && !unlink($journal)) {
+                    throw new RuntimeException('Worker journal cleanup failed.');
+                }
             }
+        }
+    }
+
+    private static function journal(string $path, string $stage): void
+    {
+        $file = fopen($path, $stage === 'creating' ? 'xe' : 'r+e');
+        if ($file === false) {
+            throw new RuntimeException('Worker journal unavailable.');
+        }
+        try {
+            if (!ftruncate($file, 0) || fwrite($file, $stage) !== strlen($stage) || !fflush($file) || !fsync($file)) {
+                throw new RuntimeException('Worker journal persistence failed.');
+            }
+        } finally {
+            fclose($file);
         }
     }
 

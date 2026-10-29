@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AxiomPress\Policy;
 
 use RuntimeException;
+use FilesystemIterator;
 
 /** Trusted local builder: no publisher Dockerfile, build hook, network or runtime options. */
 final class PackageBuilder
@@ -25,7 +26,11 @@ final class PackageBuilder
             throw new RuntimeException('Could not create build snapshot.');
         }
         $tag = 'axiompress-package:' . bin2hex(random_bytes(12));
+        $clientDirectory = $directory . '-client';
         try {
+            if (!mkdir($clientDirectory, 0700)) {
+                throw new RuntimeException('Could not create private builder client state.');
+            }
             $labels = array(
                 'dev.axiompress.package.digest' => $package->digest,
                 'dev.axiompress.manifest.digest' => $package->manifestDigest,
@@ -47,7 +52,9 @@ final class PackageBuilder
                     throw new RuntimeException('Snapshot write failed.');
                 }
             }
-            self::command(array('docker', 'build', '--network=none', '--pull=false', '-t', $tag, $directory));
+            self::command(array('docker', '--config', $clientDirectory, 'buildx', 'build',
+                '--load', '--network=none', '--pull=false',
+                '-t', $tag, $directory));
             $sdkAfter = json_decode(
                 self::command(array('docker', 'image', 'inspect', 'axiompress-worker-sdk:prototype')),
                 true,
@@ -65,6 +72,9 @@ final class PackageBuilder
             )[0];
             return ImageBinding::inspect($package, $image, $sdkImage);
         } finally {
+            if (is_dir($clientDirectory)) {
+                self::removeClientState($clientDirectory);
+            }
             foreach (array('Dockerfile', 'manifest.json', 'worker.php') as $name) {
                 $path = $directory . '/' . $name;
                 if (is_file($path)) {
@@ -72,6 +82,21 @@ final class PackageBuilder
                 }
             }
             rmdir($directory);
+        }
+    }
+
+    /** Only the random operator-owned client directory created above; never follow symlinks. */
+    private static function removeClientState(string $directory): void
+    {
+        foreach (new FilesystemIterator($directory, FilesystemIterator::SKIP_DOTS) as $entry) {
+            if ($entry->isDir() && !$entry->isLink()) {
+                self::removeClientState($entry->getPathname());
+            } elseif (!unlink($entry->getPathname())) {
+                throw new RuntimeException('Builder client cleanup failed.');
+            }
+        }
+        if (!rmdir($directory)) {
+            throw new RuntimeException('Builder client directory cleanup failed.');
         }
     }
 

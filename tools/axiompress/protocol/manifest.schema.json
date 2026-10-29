@@ -1,0 +1,47 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "api",
+    "plugin_id",
+    "version",
+    "entrypoint",
+    "operations",
+    "capabilities",
+    "resource_profile"
+  ],
+  "properties": {
+    "api": {
+      "const": "axiompress.plugin/0.1"
+    },
+    "plugin_id": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*/[a-z0-9]+(?:[.-][a-z0-9]+)*(?![\\s\\S])"
+    },
+    "version": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[0-9]+[.][0-9]+[.][0-9]+(?:-[a-zA-Z0-9.-]+)?(?![\\s\\S])"
+    },
+    "entrypoint": {
+      "const": "worker.php"
+    },
+    "operations": {
+      "const": [
+        "component.render"
+      ]
+    },
+    "capabilities": {
+      "const": [
+        "content.read"
+      ]
+    },
+    "resource_profile": {
+      "const": "readonly-v1"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:axiompress:plugin:manifest:0.1",
+  "description": "Prototype source package contract only. Deployment supplies installation/site identity and verified digest separately; this schema is not package validation or execution authorization."
+}

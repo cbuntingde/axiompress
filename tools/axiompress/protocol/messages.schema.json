@@ -1,0 +1,337 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:axiompress:plugin:messages:0.1",
+  "description": "Supplemented by codec UTF-8 byte, depth and duplicate-key rules. PHP integers are required for numeric component fields; decimal notation is rejected.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api",
+        "kind",
+        "id",
+        "operation",
+        "invocation",
+        "params"
+      ],
+      "properties": {
+        "api": {
+          "const": "axiompress.plugin/0.1"
+        },
+        "kind": {
+          "const": "request"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*(?![\\s\\S])"
+        },
+        "operation": {
+          "const": "content.read"
+        },
+        "invocation": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}(?![\\s\\S])"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "content_id"
+          ],
+          "properties": {
+            "content_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*(?![\\s\\S])"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api",
+        "kind",
+        "id",
+        "operation",
+        "invocation",
+        "params"
+      ],
+      "properties": {
+        "api": {
+          "const": "axiompress.plugin/0.1"
+        },
+        "kind": {
+          "const": "dispatch"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*(?![\\s\\S])"
+        },
+        "operation": {
+          "const": "component.render"
+        },
+        "invocation": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}(?![\\s\\S])"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "content_id"
+          ],
+          "properties": {
+            "content_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*(?![\\s\\S])"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api",
+        "kind",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "api": {
+          "const": "axiompress.plugin/0.1"
+        },
+        "kind": {
+          "const": "response"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*(?![\\s\\S])"
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "content_id",
+            "revision",
+            "title",
+            "text"
+          ],
+          "properties": {
+            "content_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*(?![\\s\\S])"
+            },
+            "revision": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*(?![\\s\\S])"
+            },
+            "title": {
+              "type": "string",
+              "maxLength": 4096,
+              "description": "Also limited to 4096 UTF-8 bytes by codec."
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 131072,
+              "description": "Also limited to 131072 UTF-8 bytes by codec."
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api",
+        "kind",
+        "id",
+        "error"
+      ],
+      "properties": {
+        "api": {
+          "const": "axiompress.plugin/0.1"
+        },
+        "kind": {
+          "const": "response"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*(?![\\s\\S])"
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message",
+            "retryable",
+            "diagnostic_id"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_request",
+                "unsupported_version",
+                "unauthenticated",
+                "forbidden",
+                "not_found",
+                "conflict",
+                "quota_exceeded",
+                "deadline_exceeded",
+                "unavailable",
+                "internal_error"
+              ]
+            },
+            "message": {
+              "type": "string",
+              "maxLength": 256,
+              "description": "Also limited to 256 UTF-8 bytes."
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "diagnostic_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*(?![\\s\\S])"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api",
+        "kind",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "api": {
+          "const": "axiompress.plugin/0.1"
+        },
+        "kind": {
+          "const": "completion"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*(?![\\s\\S])"
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "word_count",
+            "reading_seconds"
+          ],
+          "properties": {
+            "type": {
+              "const": "reading_summary"
+            },
+            "word_count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 131072
+            },
+            "reading_seconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 39322
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api",
+        "kind",
+        "id",
+        "error"
+      ],
+      "properties": {
+        "api": {
+          "const": "axiompress.plugin/0.1"
+        },
+        "kind": {
+          "const": "completion"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*(?![\\s\\S])"
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message",
+            "retryable",
+            "diagnostic_id"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_request",
+                "unsupported_version",
+                "unauthenticated",
+                "forbidden",
+                "not_found",
+                "conflict",
+                "quota_exceeded",
+                "deadline_exceeded",
+                "unavailable",
+                "internal_error"
+              ]
+            },
+            "message": {
+              "type": "string",
+              "maxLength": 256,
+              "description": "Also limited to 256 UTF-8 bytes."
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "diagnostic_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*(?![\\s\\S])"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

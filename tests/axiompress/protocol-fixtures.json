@@ -1,0 +1,200 @@
+{
+  "messages": [
+    {
+      "name": "read",
+      "valid": true,
+      "message": {
+        "api": "axiompress.plugin/0.1",
+        "kind": "request",
+        "id": "r1",
+        "operation": "content.read",
+        "invocation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "params": {
+          "content_id": "article:4"
+        }
+      }
+    },
+    {
+      "name": "unknown-field",
+      "valid": false,
+      "message": {
+        "api": "axiompress.plugin/0.1",
+        "kind": "request",
+        "id": "r1",
+        "operation": "content.read",
+        "invocation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "params": {
+          "content_id": "article:4"
+        },
+        "actor": "admin"
+      }
+    },
+    {
+      "name": "wrong-version",
+      "valid": false,
+      "message": {
+        "api": "other",
+        "kind": "request",
+        "id": "r1",
+        "operation": "content.read",
+        "invocation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "params": {
+          "content_id": "article:4"
+        }
+      }
+    },
+    {
+      "name": "write",
+      "valid": false,
+      "message": {
+        "api": "axiompress.plugin/0.1",
+        "kind": "request",
+        "id": "r1",
+        "operation": "storage.put",
+        "invocation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "params": {
+          "content_id": "article:4"
+        }
+      }
+    },
+    {
+      "name": "array-params",
+      "valid": false,
+      "message": {
+        "api": "axiompress.plugin/0.1",
+        "kind": "request",
+        "id": "r1",
+        "operation": "content.read",
+        "invocation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "params": []
+      }
+    },
+    {
+      "name": "newline-id",
+      "valid": false,
+      "message": {
+        "api": "axiompress.plugin/0.1",
+        "kind": "request",
+        "id": "id\n",
+        "operation": "content.read",
+        "invocation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "params": {
+          "content_id": "article:4"
+        }
+      }
+    },
+    {
+      "name": "response",
+      "valid": true,
+      "message": {
+        "api": "axiompress.plugin/0.1",
+        "kind": "response",
+        "id": "r1",
+        "result": {
+          "content_id": "article:4",
+          "revision": "v1",
+          "title": "Title",
+          "text": "Text"
+        }
+      }
+    },
+    {
+      "name": "response-both",
+      "valid": false,
+      "message": {
+        "api": "axiompress.plugin/0.1",
+        "kind": "response",
+        "id": "r1",
+        "error": {
+          "code": "forbidden",
+          "message": "Denied",
+          "retryable": false,
+          "diagnostic_id": "d1"
+        },
+        "result": {
+          "content_id": "article:4",
+          "revision": "v1",
+          "title": "Title",
+          "text": "Text"
+        }
+      }
+    },
+    {
+      "name": "response-error",
+      "valid": true,
+      "message": {
+        "api": "axiompress.plugin/0.1",
+        "kind": "response",
+        "id": "r1",
+        "error": {
+          "code": "forbidden",
+          "message": "Denied",
+          "retryable": false,
+          "diagnostic_id": "d1"
+        }
+      }
+    },
+    {
+      "name": "completion",
+      "valid": true,
+      "message": {
+        "api": "axiompress.plugin/0.1",
+        "kind": "completion",
+        "id": "r1",
+        "result": {
+          "type": "reading_summary",
+          "word_count": 1,
+          "reading_seconds": 1
+        }
+      }
+    },
+    {
+      "name": "completion-both",
+      "valid": false,
+      "message": {
+        "api": "axiompress.plugin/0.1",
+        "kind": "completion",
+        "id": "r1",
+        "error": {
+          "code": "forbidden",
+          "message": "Denied",
+          "retryable": false,
+          "diagnostic_id": "d1"
+        },
+        "result": {
+          "type": "reading_summary",
+          "word_count": 1,
+          "reading_seconds": 1
+        }
+      }
+    },
+    {
+      "name": "completion-error",
+      "valid": true,
+      "message": {
+        "api": "axiompress.plugin/0.1",
+        "kind": "completion",
+        "id": "r1",
+        "error": {
+          "code": "forbidden",
+          "message": "Denied",
+          "retryable": false,
+          "diagnostic_id": "d1"
+        }
+      }
+    }
+  ],
+  "manifest": {
+    "api": "axiompress.plugin/0.1",
+    "plugin_id": "axiompress/reading-summary",
+    "version": "0.1.0",
+    "entrypoint": "worker.php",
+    "operations": [
+      "component.render"
+    ],
+    "capabilities": [
+      "content.read"
+    ],
+    "resource_profile": "readonly-v1"
+  }
+}

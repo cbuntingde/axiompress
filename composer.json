@@ -74,6 +74,8 @@
 		}
 	},
 	"scripts": {
+		"test:protocol": "@php tests/axiompress/protocol-test.php",
+		"test:broker": "@php tests/axiompress/broker-test.php",
 		"phpstan": "@php ./vendor/bin/phpstan analyse --memory-limit=2G",
 		"phpstan:baselines": [ "Composer\\Config::disableProcessTimeout", "@php ./tests/phpstan/generate-baselines.php" ],
 		"compat": "@php ./vendor/squizlabs/php_codesniffer/bin/phpcs --standard=phpcompat.xml.dist --report=summary,source",

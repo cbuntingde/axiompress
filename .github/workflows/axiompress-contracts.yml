@@ -43,6 +43,7 @@ jobs:
                   composer test:protocol
                   composer test:broker
                   php tests/axiompress/native-core-test.php
+                  php tests/axiompress/service-contract-test.php
             - name: Design schemas and rejection corpus
               run: |
                   python3 -m venv .cache/axiompress-ci

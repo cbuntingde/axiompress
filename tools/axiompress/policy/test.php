@@ -168,15 +168,32 @@ try {
     $check($reader->resolve('plugin-a', 'site:1')['image'] === $image);
     $check($reader->generation('plugin-a', 'site:1', $otherBinding->image) === null);
     $reject(fn() => $registry->context('test', $handle));
+    $legacyStore = new PolicyStore($directory . '/legacy.sqlite');
+    $legacyStore->register($binding);
+    $legacyStore->create('legacy', 'site:1', $image);
+    $legacyStore->change('legacy', 1, true, array('content.read'), $image);
+    unset($legacyStore);
+    $legacy = new PDO('sqlite:' . $directory . '/legacy.sqlite');
+    $check($legacy->query('PRAGMA journal_mode=WAL')->fetchColumn() === 'wal');
+    $reject(fn() => new PolicyStore($directory . '/legacy.sqlite', true));
+    unset($legacy);
+    $converted = new PolicyStore($directory . '/legacy.sqlite');
+    $convertedReader = new PolicyStore($directory . '/legacy.sqlite', true);
+    $check($convertedReader->generation('legacy', 'site:1', $image) === 2);
+    $legacy = new PDO('sqlite:' . $directory . '/legacy.sqlite');
+    $check($legacy->query('PRAGMA journal_mode')->fetchColumn() === 'delete');
     echo "PASS: {$checks} package/policy checks\n";
 } finally {
-    unset($store, $writer, $reader, $reopened, $registry, $unknown);
+    unset($store, $writer, $reader, $reopened, $registry, $unknown, $legacy, $converted, $convertedReader);
     foreach (array('manifest.json', 'worker.php', 'Dockerfile') as $name) {
         if (file_exists($directory . '/package/' . $name)) {
             unlink($directory . '/package/' . $name);
         }
     }
-    foreach (array('policy.sqlite', 'policy.sqlite-wal', 'policy.sqlite-shm', 'unknown.sqlite') as $name) {
+    foreach (
+        array('policy.sqlite', 'policy.sqlite-wal', 'policy.sqlite-shm', 'unknown.sqlite',
+        'legacy.sqlite', 'legacy.sqlite-wal', 'legacy.sqlite-shm') as $name
+    ) {
         if (is_file($directory . '/' . $name)) {
             unlink($directory . '/' . $name);
         }

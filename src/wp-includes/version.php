@@ -1,4 +1,9 @@
 <?php
+// Fork identity is separate from the inherited WordPress schema/runtime version.
+if ( ! defined( 'AXIOMPRESS_VERSION' ) ) {
+	define( 'AXIOMPRESS_VERSION', '0.1.0-dev' );
+	define( 'AXIOMPRESS_URL', 'https://axiompress.dev' );
+}
 /**
  * WordPress Version
  *

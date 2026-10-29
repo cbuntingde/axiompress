@@ -243,59 +243,7 @@ function dismissed_updates() {
  * @since 2.7.0
  */
 function core_upgrade_preamble() {
-	$updates = get_core_updates();
-
-	// Include an unmodified $wp_version.
-	require ABSPATH . WPINC . '/version.php';
-
-	$is_development_version = preg_match( '/alpha|beta|RC/', $wp_version );
-
-	if ( isset( $updates[0]->version ) && version_compare( $updates[0]->version, $wp_version, '>' ) ) {
-		echo '<h2 class="response">';
-		_e( 'An updated version of WordPress is available.' );
-		echo '</h2>';
-
-		$message = sprintf(
-			/* translators: 1: Documentation on WordPress backups, 2: Documentation on updating WordPress. */
-			__( '<strong>Important:</strong> Before updating, please <a href="%1$s">back up your database and files</a>. For help with updates, visit the <a href="%2$s">Updating WordPress</a> documentation page.' ),
-			__( 'https://developer.wordpress.org/advanced-administration/security/backup/' ),
-			__( 'https://wordpress.org/documentation/article/updating-wordpress/' )
-		);
-		wp_admin_notice(
-			$message,
-			array(
-				'type'               => 'warning',
-				'additional_classes' => array( 'inline' ),
-			)
-		);
-	} elseif ( $is_development_version ) {
-		echo '<h2 class="response">' . __( 'You are using a development version of WordPress.' ) . '</h2>';
-	} else {
-		echo '<h2 class="response">' . __( 'You have the latest version of WordPress.' ) . '</h2>';
-	}
-
-	echo '<ul class="core-updates">';
-	foreach ( (array) $updates as $update ) {
-		echo '<li>';
-		list_core_update( $update );
-		echo '</li>';
-	}
-	echo '</ul>';
-
-	// Don't show the maintenance mode notice when we are only showing a single re-install option.
-	if ( $updates && ( count( $updates ) > 1 || 'latest' !== $updates[0]->response ) ) {
-		echo '<p>' . __( 'While your site is being updated, it will be in maintenance mode. As soon as your updates are complete, this mode will be deactivated.' ) . '</p>';
-	} elseif ( ! $updates ) {
-		list( $normalized_version ) = explode( '-', $wp_version );
-		echo '<p>' . sprintf(
-			/* translators: 1: URL to About screen, 2: WordPress version. */
-			__( '<a href="%1$s">Learn more about WordPress %2$s</a>.' ),
-			esc_url( self_admin_url( 'about.php' ) ),
-			$normalized_version
-		) . '</p>';
-	}
-
-	dismissed_updates();
+	echo '<h2>AxiomPress</h2><p>Core releases are installed by your deployment administrator. In-application core updates and reinstalls are disabled.</p><p><a href="https://axiompress.dev">axiompress.dev</a></p>';
 }
 
 /**
@@ -984,7 +932,7 @@ if ( ( 'do-theme-upgrade' === $action || ( 'do-plugin-upgrade' === $action && ! 
 	$action        = 'upgrade-core';
 }
 
-$title       = __( 'WordPress Updates' );
+$title       = __( 'AxiomPress Updates' );
 $parent_file = 'index.php';
 
 $updates_overview  = '<p>' . __( 'On this screen, you can update to the latest version of WordPress, as well as update your themes, plugins, and translations.' ) . '</p>';
@@ -1064,7 +1012,7 @@ if ( 'upgrade-core' === $action ) {
 	require_once ABSPATH . 'wp-admin/admin-header.php';
 	?>
 	<div class="wrap">
-	<h1><?php _e( 'WordPress Updates' ); ?></h1>
+	<h1><?php _e( 'AxiomPress Updates' ); ?></h1>
 	<p><?php _e( 'Updates may take several minutes to complete. If there is no feedback after 5 minutes, or if there are errors please refer to the Help section above.' ); ?></p>
 
 	<?php

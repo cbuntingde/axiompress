@@ -1,6 +1,6 @@
 {
-	"name": "WordPress",
-	"version": "7.2.0",
+	"name": "axiompress",
+	"version": "0.1.0-dev",
 	"description": "WordPress is open source software you can use to create a beautiful website, blog, or app.",
 	"repository": {
 		"type": "svn",

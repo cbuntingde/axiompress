@@ -269,6 +269,10 @@ class WP_Automatic_Updater {
 	 * @phpstan-param (Core_Update_Offer|Plugin_Update_Offer|Theme_Update_Offer|Translation_Update_Offer) $item
 	 */
 	public function should_update( $type, $item, $context ) {
+		if ( 'core' === $type ) {
+			return false;
+		}
+
 		// Used to see if WP_Filesystem is set up to allow unattended updates.
 		$skin = new Automatic_Upgrader_Skin();
 

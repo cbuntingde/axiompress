@@ -1,19 +1,19 @@
 {
-	"name": "wordpress/wordpress",
-	"version": "7.2.0",
+	"name": "axiompress/axiompress",
+	"version": "0.1.0-dev",
 	"license": "GPL-2.0-or-later",
-	"description": "WordPress is open source software you can use to create a beautiful website, blog, or app.",
-	"homepage": "https://wordpress.org",
+	"description": "AxiomPress is an independent, clean-break CMS fork of WordPress.",
+	"homepage": "https://axiompress.dev",
 	"keywords": [
 		"blog", "cms", "wordpress", "wp"
 	],
 	"support": {
-		"issues": "https://core.trac.wordpress.org/"
+		"issues": "https://github.com/cbuntingde/wordpress-develop/issues"
 	},
 	"require": {
 		"ext-hash": "*",
 		"ext-json": "*",
-		"php": ">=7.4"
+		"php": ">=8.2"
 	},
 	"suggest": {
 		"ext-apcu": "*",

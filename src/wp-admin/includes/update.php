@@ -37,48 +37,7 @@ function get_preferred_from_update_core() {
  * @return array<object>|false Array of the update objects on success, false on failure.
  */
 function get_core_updates( $options = array() ) {
-	$options = array_merge(
-		array(
-			'available' => true,
-			'dismissed' => false,
-		),
-		$options
-	);
-
-	$dismissed = get_site_option( 'dismissed_update_core' );
-
-	if ( ! is_array( $dismissed ) ) {
-		$dismissed = array();
-	}
-
-	$from_api = get_site_transient( 'update_core' );
-
-	if ( ! isset( $from_api->updates ) || ! is_array( $from_api->updates ) ) {
-		return false;
-	}
-
-	$updates = $from_api->updates;
-	$result  = array();
-
-	foreach ( $updates as $update ) {
-		if ( 'autoupdate' === $update->response ) {
-			continue;
-		}
-
-		if ( array_key_exists( $update->current . '|' . $update->locale, $dismissed ) ) {
-			if ( $options['dismissed'] ) {
-				$update->dismissed = true;
-				$result[]          = $update;
-			}
-		} else {
-			if ( $options['available'] ) {
-				$update->dismissed = false;
-				$result[]          = $update;
-			}
-		}
-	}
-
-	return $result;
+	return array();
 }
 
 /**
@@ -91,32 +50,7 @@ function get_core_updates( $options = array() ) {
  * @return object|false The core update offering on success, false on failure.
  */
 function find_core_auto_update() {
-	$updates = get_site_transient( 'update_core' );
-
-	if ( ! $updates || empty( $updates->updates ) ) {
-		return false;
-	}
-
-	require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
-
-	$auto_update = false;
-	$upgrader    = new WP_Automatic_Updater();
-
-	foreach ( $updates->updates as $update ) {
-		if ( 'autoupdate' !== $update->response ) {
-			continue;
-		}
-
-		if ( ! $upgrader->should_update( 'core', $update, ABSPATH ) ) {
-			continue;
-		}
-
-		if ( ! $auto_update || version_compare( $update->current, $auto_update->current, '>' ) ) {
-			$auto_update = $update;
-		}
-	}
-
-	return $auto_update;
+	return false;
 }
 
 /**
@@ -129,47 +63,8 @@ function find_core_auto_update() {
  * @return array<string, string>|false An array of checksums on success, false on failure.
  */
 function get_core_checksums( $version, $locale ) {
-	$http_url = 'http://api.wordpress.org/core/checksums/1.0/?' . http_build_query( compact( 'version', 'locale' ), '', '&' );
-	$url      = $http_url;
-
-	$ssl = wp_http_supports( array( 'ssl' ) );
-
-	if ( $ssl ) {
-		$url = set_url_scheme( $url, 'https' );
-	}
-
-	$options = array(
-		'timeout' => wp_doing_cron() ? 30 : 3,
-	);
-
-	$response = wp_remote_get( $url, $options );
-
-	if ( $ssl && is_wp_error( $response ) ) {
-		wp_trigger_error(
-			__FUNCTION__,
-			sprintf(
-				/* translators: %s: Support forums URL. */
-				__( 'An unexpected error occurred. Something may be wrong with WordPress.org or this server&#8217;s configuration. If you continue to have problems, please try the <a href="%s">support forums</a>.' ),
-				__( 'https://wordpress.org/support/forums/' )
-			) . ' ' . __( '(WordPress could not establish a secure connection to WordPress.org. Please contact your server administrator.)' ),
-			headers_sent() || WP_DEBUG ? E_USER_WARNING : E_USER_NOTICE
-		);
-
-		$response = wp_remote_get( $http_url, $options );
-	}
-
-	if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
-		return false;
-	}
-
-	$body = trim( wp_remote_retrieve_body( $response ) );
-	$body = json_decode( $body, true );
-
-	if ( ! is_array( $body ) || ! isset( $body['checksums'] ) || ! is_array( $body['checksums'] ) ) {
-		return false;
-	}
-
-	return $body['checksums'];
+	// Upstream checksums do not describe AxiomPress artifacts.
+	return false;
 }
 
 /**

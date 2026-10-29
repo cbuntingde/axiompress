@@ -1,0 +1,32 @@
+# Apply after the root Compose file; this is a local hardening profile, not a release system.
+# docker compose --env-file .env -f docker-compose.yml -f tools/deployment/readonly.compose.yml up -d
+services:
+  php:
+    command: php-fpm
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    user: "1000:1000"
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+      - /usr/local/var/run:uid=1000,gid=1000,mode=0755
+    volumes:
+      - ./:/var/www:ro
+  cli:
+    entrypoint: ["sleep"]
+    command: ["infinity"]
+    read_only: true
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    volumes:
+      - ./:/var/www:ro
+  wordpress-develop:
+    volumes:
+      - ./:/var/www:ro

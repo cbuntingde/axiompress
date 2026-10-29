@@ -1,0 +1,9 @@
+{
+  "api": "axiompress.plugin/0.1",
+  "plugin_id": "axiompress/reading-summary",
+  "version": "0.1.0",
+  "entrypoint": "worker.php",
+  "operations": ["component.render"],
+  "capabilities": ["content.read"],
+  "resource_profile": "readonly-v1"
+}

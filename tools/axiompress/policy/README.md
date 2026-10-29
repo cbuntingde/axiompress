@@ -1,0 +1,21 @@
+# Prototype installation policy
+
+The live worker runner resolves its image and content.read grant from a separate SQLite policy store. It never accepts an image or authority claim from worker JSON. This is an operator-only prototype, not a public installer or a production control plane.
+
+Package captures exactly manifest.json and worker.php from an operator-owned immutable source directory, checks bounded sizes and strict manifest fields, rejects symbolic links and hardlinks, and computes digests from the captured bytes. It never executes package PHP. Hostile archive extraction and concurrently mutable source trees are outside this loader's contract.
+
+PackageBuilder builds captured bytes with a fixed recipe and a verified SDK image. Publisher Dockerfiles, build hooks and dependency resolution are unsupported. ImageBinding checks actual Docker inspection against source digests, plugin identity, SDK identity and fixed configuration. Labels establish consistency with this trusted local builder; they are not publisher signatures or protection from a compromised Docker administrator. Approved images and build tags are retained; artifact retention and garbage collection need deployment policy.
+
+PolicyStore registers immutable image mappings and creates disabled installations with no grants. Explicit approval enables content.read. Every policy mutation uses an expected generation and increments it atomically. Replacement images must retain plugin identity. Installation IDs cannot be deleted and reused through this API. Supervisor::fromPolicy pins each invocation to installation, site, image and current generation. Disable, grant removal or image replacement invalidates existing authority on its next broker check.
+
+The database belongs in a private operator-owned directory. SQLite uses WAL, full synchronization, foreign keys and bounded lock waits. Runtime readers open the database read-only; the operator CLI owns writes. The supervisor volume permits SQLite coordination and is not an OS boundary against the Docker-privileged supervisor. Neither workers nor the core bridge receive this volume. Unknown schema versions fail closed. Offline restoration requires stopping all existing authorities before restoring: generation counters alone provide no protection against backup rollback.
+
+The live runner creates and explicitly approves a uniquely named synthetic installation in the axiompress-policy-prototype volume. setup-live.php requires AXIOM_APPROVE_LIVE_TEST=1. manage.php provides operator-only describe, disable and approve-read commands using expected generations. It needs the policy volume but no Docker socket. No public authorization endpoint is exposed.
+
+Run the complete prototype with tools/axiompress/supervisor/run-live-checks.ps1. The policy unit suite runs in the Linux supervisor image (PDO SQLite required):
+
+```powershell
+docker run --rm --network=none --read-only --tmpfs=/tmp:rw,size=32m --entrypoint php axiompress-supervisor:prototype /app/policy/test.php
+```
+
+The suite covers 60 package, image-binding, persistence, denial, generation and concurrency cases. runtime-test.php additionally verifies actual worker denial during a read, disabled admission, and success after reapproval with a new generation. Shared single-host worker admission and operator crash recovery are documented in ../supervisor/README.md. Publisher authentication, stronger runtime isolation and production recovery readiness remain separate gates.

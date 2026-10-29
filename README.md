@@ -14,13 +14,16 @@ The current checkout includes:
 -   A bounded extension protocol, scoped content broker and restricted Linux worker supervisor.
 -   A Linux peer-authenticated core/broker service with gVisor integration, bounded admission and crash recovery.
 -   An initial PostgreSQL 18 domain schema and deployment-only migration runner with restricted reader roles.
+-   Native PostgreSQL-backed login, opaque sessions, CSRF protection and function-only site-scoped authentication roles.
+-   Authenticated PostgreSQL article commands with ownership policy, revision conflicts, idempotent retries and a transactional publication outbox.
+-   Anonymous PostgreSQL GET/HEAD reads through a separate restricted identity, following published revisions and current visibility.
 -   Operator-managed package/image approval, persistent installation grants, revocation, shared admission and recovery checks.
 -   Core protections that prevent official WordPress packages from replacing AxiomPress.
 -   Focused tests and repeatable database, runtime, editor and performance experiments.
 
-PostgreSQL 18 is selected for the future domain model. The native read prototype currently uses a SELECT-only public projection of the inherited MySQL schema. gVisor systrap is integrated with the extension service and exercised on a dedicated WSL2 Linux engine. Runc remains development-only; production deployment still requires independent host and security acceptance. Gutenberg block grammar and reviewed UI packages will be reused selectively.
+PostgreSQL 18 is selected for the future domain model. Public reads can use native PostgreSQL articles through an explicit backend setting; the inherited MySQL SELECT-only projection remains the default comparison source. gVisor systrap is integrated with the extension service and exercised on a dedicated WSL2 Linux engine. Runc remains development-only; production deployment still requires independent host and security acceptance. Gutenberg block grammar and reviewed UI packages will be reused selectively.
 
-Native authentication, content writes, full administration/editor integration, data migration and signed release infrastructure remain later-phase work. Legacy executable plugin/theme compatibility is outside the target architecture.
+Core article commands and native authentication have development database/HTTPS evidence. Full administration/editor integration, data migration, plugin command authority, outbox delivery and signed release infrastructure remain later-phase work; production admission and deployment acceptance remain required. Legacy executable plugin/theme compatibility is outside the target architecture.
 
 ## Architecture and policies
 
@@ -28,7 +31,7 @@ Native authentication, content writes, full administration/editor integration, d
 -   [Release and deployment policy](AXIOMPRESS_RELEASE_POLICY.md)
 -   [Fork provenance and original baseline](FORK_PROVENANCE.md)
 -   [Contributing to AxiomPress](CONTRIBUTING.md) and [repository guidance](AGENTS.md)
--   [Native core contract](src/axiompress/README.md)
+-   [Native core contract](src/axiompress/README.md) and [public PostgreSQL configuration](src/axiompress/PublicReads.md)
 -   [Worker supervision and containment limits](tools/axiompress/supervisor/README.md)
 -   [Extension service, Linux host setup and verification](tools/axiompress/service/README.md)
 -   [Package and installation policy](tools/axiompress/policy/README.md)

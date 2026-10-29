@@ -1,0 +1,35 @@
+# Native content commands
+
+This is the core-only PostgreSQL article pipeline. It uses the native authentication configuration and HTTPS/session/Origin/CSRF contract in [Auth](../Auth/README.md). No WordPress bootstrap, hooks, extensions, HTML renderer, arbitrary SQL or caller-provided actor/site identity participates. The separate anonymous `/v1/sites/{site}/content/{id}` route still uses the inherited MySQL projection; it does not expose these new PostgreSQL articles.
+
+| Method and route                   | Exact JSON string fields                                 | Result                                                               |
+| ---------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------- |
+| `POST /v1/articles`                | `title`, `text`                                          | Creates an actor-owned draft; 201.                                   |
+| `GET /v1/articles/{id}`            | No body                                                  | Reads the authorized current revision; 200.                          |
+| `PUT /v1/articles/{id}`            | `expected_revision`, `expected_version`, `title`, `text` | Appends a revision and advances the article version; 200.            |
+| `POST /v1/articles/{id}/publish`   | `expected_revision`, `expected_version`                  | Makes the current revision public and advances the version; 200.     |
+| `POST /v1/articles/{id}/unpublish` | `expected_revision`, `expected_version`                  | Withdraws the public revision, preserving the private revision; 200. |
+
+All writes require a 64-character lowercase hexadecimal `Idempotency-Key`, exact configured Origin and session-bound `X-CSRF-Token`. IDs and versions are canonical decimal strings (up to 18 digits); revision IDs are 64-character lowercase hexadecimal random tokens. Titles are at most 4096 UTF-8 bytes and text at most 131072. JSON request bytes are bounded to 819200, allowing worst-case escaping of valid content. Flat string-only JSON rejects duplicate/extra keys, malformed UTF-8 and NUL. Text is stored as supplied and returned in HTML-escaped JSON; it must be rendered as text, never inserted as HTML. There is no block execution or HTML sanitization claim.
+
+Authors create and read/edit only their own articles. Owners and editors read/edit any article within their deployment-bound site and control publication. Other-site and unauthorized article probes return the same not_found response. A published article may have a newer private draft: editing never changes its published pointer. Publish selects the current draft; unpublish records the withdrawn public revision even if the current draft differs. Publishing an already-current public revision or unpublishing an already-private article with a new key conflicts. Repeating the original successful key returns its original outcome.
+
+## Transaction and retry boundary
+
+Migration 0003 grants the existing `axiom_authenticator` group only schema usage and execution of `axiom_content.command`. It grants no table, sequence, outbox or receipt access. Core passes a digest of its cookie, configured site and typed operation parameters; SQL derives the actor/site from the current session and login-OID binding. Deployment credentials never enter core. A compromised core identity remains trusted authentication authority for its configured site; this is not containment of core compromise.
+
+Each command executes as one database statement/transaction. The function locks its site binding, serializes site command admission with the same advisory lock as session creation, locks the session and active identity/credential/membership rows, and locks the target article. It checks wall-clock expiry after lock waits. Those locks keep logout, membership/role/password changes and conflicting edits ordered relative to the command; a revocation committed before admission wins. A preliminary HTTP session check confers no commit authority. No transaction spans extension execution. The coarse per-site lock favors correctness in this initial slice; throughput and production admission have not been accepted.
+
+Every update compares both current revision and article version. Publication also advances the version, so unchanged text does not hide a competing publish/unpublish. Failed expectations return 409 and append nothing. Immutable revisions, pointer/version changes, publication outbox records and successful command receipts commit or roll back together. SQL exceptions use the native non-disclosing 503 handler; a client may retry an uncertain result with the same key.
+
+Receipt identity is site + actor + key, independent of the session cookie. The database hashes normalized operation, target, expectations and text. Matching retries return the original metadata after current session, role and resource authorization; a reused key with different input conflicts. Stored outcomes are historical command results, not current article snapshots. Receipts replay for seven days, then reject reuse for seven more days; after fourteen days cleanup allows reuse and deduplication is no longer promised. Use a fresh random key for every new intent. Conflicts and denials are not persisted as successful outcomes.
+
+This slice fails closed at 4096 retained receipts per site, 10000 articles per site, 1000 revisions per article or 10000 undelivered publication outbox rows per site. Existing matching retries can still replay at receipt capacity. There is no automatic history/outbox eviction. Operators must plan storage and retention; sustained load and retention jobs remain separate work. Rate/quota responses are 429; authorization is 401/403/404 as appropriate; stale expectations/key reuse are 409.
+
+The outbox contains only event ID, site/article/revision identifiers, event type and time. It supports `content.published.v1` and `content.unpublished.v1`; no worker subscription, dispatch, job retry or side effect is enabled. A transactional outbox is not a completed job service. Plugin proposal/event schemas remain design-only and do not grant these core HTTP commands to plugins.
+
+## Verification
+
+Run `python3 tools/axiompress/database/run-checks.py` as root on the dedicated Linux Docker host. Real PostgreSQL tests cover ownership/cross-site denials, draft/public separation, revision/version conflicts, replay reauthorization and retention, independent competing clients, revocation while waiting, injected final-write rollback and quota exhaustion. The same harness exercises the native entrypoint through verified HTTPS. Existing authentication, migration, protocol/broker and anonymous core regression checks remain required.
+
+Administration/editor UI, revision listing/restoration, uploads, importer, plugin writes and outbox delivery are subsequent slices. Production FPM/proxy, enrollment/recovery, audit retention, operational recovery and load acceptance remain unverified gates.

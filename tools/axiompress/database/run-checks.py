@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import runpy
 import subprocess
 import tempfile
 import time
@@ -24,7 +25,7 @@ def docker(*args, data=None, timeout=30):
     if result.returncode:
         # SQL/bootstrap data and credentials are deliberately absent from errors.
         detail = result.stderr
-        for label in ('root', 'deployer', 'reader-a', 'reader-b'):
+        for label in ('root', 'deployer', 'reader-a', 'reader-b', 'auth-a', 'auth-b', 'user-password'):
             secret = directory / label
             if secret.is_file():
                 detail = detail.replace(secret.read_text(), '[redacted]')
@@ -46,7 +47,7 @@ if os.name != 'posix' or os.getuid() != 0:
 with tempfile.TemporaryDirectory(prefix='axiompress-schema-', dir='/tmp') as temporary:
     directory = Path(temporary)
     try:
-        for label in ('root', 'deployer', 'reader-a', 'reader-b'):
+        for label in ('root', 'deployer', 'reader-a', 'reader-b', 'auth-a', 'auth-b', 'user-password'):
             path = directory / label
             path.write_text(secrets.token_hex(32))
             os.chown(path, 10001, 10001)
@@ -55,7 +56,7 @@ with tempfile.TemporaryDirectory(prefix='axiompress-schema-', dir='/tmp') as tem
                 '-subj', '/CN=AxiomPress disposable CA', '-keyout', 'ca.key', '-out', 'ca.crt')
         openssl(directory, 'req', '-newkey', 'rsa:2048', '-nodes', '-subj', '/CN=postgres',
                 '-keyout', 'server.key', '-out', 'server.csr')
-        (directory / 'extensions').write_text('subjectAltName=DNS:postgres\n')
+        (directory / 'extensions').write_text('subjectAltName=DNS:postgres,DNS:localhost\n')
         openssl(directory, 'x509', '-req', '-in', 'server.csr', '-CA', 'ca.crt', '-CAkey', 'ca.key',
                 '-CAcreateserial', '-days', '1', '-extfile', 'extensions', '-out', 'server.crt')
         openssl(directory, 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
@@ -141,6 +142,36 @@ with tempfile.TemporaryDirectory(prefix='axiompress-schema-', dir='/tmp') as tem
         operator_checks.append('migration startup refuses role privilege drift')
         report['checks'] += len(operator_checks)
         report['operator_checks'] = operator_checks
+        sql('CREATE DATABASE axiom_auth_test;', database='postgres')
+        sql("REVOKE ALL ON DATABASE axiom_auth_test FROM PUBLIC; REVOKE ALL ON SCHEMA public FROM PUBLIC;"
+            "GRANT CONNECT ON DATABASE axiom_auth_test TO axiom_deployer,axiom_reader;"
+            "GRANT CREATE ON DATABASE axiom_auth_test TO axiom_owner;"
+            "ALTER DEFAULT PRIVILEGES FOR ROLE axiom_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;",
+            database='axiom_auth_test')
+        sql((ROOT / 'tools/axiompress/database/auth-bootstrap.sql').read_text(), database='axiom_auth_test')
+        for name, secret in (('auth_a', 'auth-a'), ('auth_b', 'auth-b')):
+            sql("CREATE ROLE " + name + " LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD '"
+                + (directory / secret).read_text() + "'; GRANT axiom_authenticator TO " + name
+                + ' WITH INHERIT TRUE;', database='axiom_auth_test')
+        auth_client = client.copy()
+        auth_client[auth_client.index('AXIOM_PG_DATABASE=axiom_domain')] = 'AXIOM_PG_DATABASE=axiom_auth_test'
+        auth_mounts = [part for file in ('auth-a', 'auth-b', 'user-password') for part in (
+            '--mount', 'type=bind,source=' + str(directory / file) + ',target=/run/secrets/' + file + ',readonly')]
+        authentication = json.loads(docker(*auth_client, *auth_mounts, '--entrypoint', 'php', verification_image,
+                                          '-d', 'display_errors=stderr', '/checks/auth-test.php', timeout=120))
+        if authentication['outcome'] != 'passed':
+            raise RuntimeError('Authentication checks did not pass')
+        report['authentication'] = authentication
+        report['content'] = json.loads(docker(*auth_client, *auth_mounts, '--entrypoint', 'php', verification_image,
+                                             '-d', 'display_errors=stderr', '/checks/content-test.php', timeout=120))
+        if report['content']['outcome'] != 'passed':
+            raise RuntimeError('Content checks did not pass')
+        report['public'] = json.loads(docker(*auth_client, *auth_mounts, '--entrypoint', 'php', verification_image,
+                                            '-d', 'display_errors=stderr', '/checks/published-content-test.php', timeout=90))
+        if report['public']['outcome'] != 'passed':
+            raise RuntimeError('Public read checks did not pass')
+        report['https'] = runpy.run_path(str(ROOT / 'tools/axiompress/database/auth-http.py'))['verify'](
+            ROOT, directory, NETWORK, docker, containers, NAME)
         report['postgres_image'] = IMAGE
         report['verification_image'] = verification_image
     finally:
@@ -153,3 +184,7 @@ with tempfile.TemporaryDirectory(prefix='axiompress-schema-', dir='/tmp') as tem
 (ROOT / 'docs').mkdir(exist_ok=True)
 (ROOT / 'docs/axiompress-phase3-database-last.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
 print('PASS: ' + str(report['checks']) + ' PostgreSQL migration/schema checks')
+print('PASS: ' + str(report['authentication']['checks']) + ' authentication checks; '
+      + str(report['https']['checks']) + ' HTTPS integration checks')
+print('PASS: ' + str(report['content']['checks']) + ' content command checks')
+print('PASS: ' + str(report['public']['checks']) + ' PostgreSQL public read checks')

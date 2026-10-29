@@ -17,6 +17,17 @@ $check = static function (bool $condition) use (&$checks): void {
     }
     $checks++;
 };
+foreach (array('é', '\\', '"', chr(1)) as $character) {
+    $large = array('text' => str_repeat($character, 65536), 'title' => 'Escaped " title \\');
+    $encoded = json_encode($large, JSON_THROW_ON_ERROR);
+    $check(AxiomPress\Core\JsonInput::object($encoded, array('text', 'title')) === $large);
+}
+foreach (
+    array('{"text":"a","text":"b","title":""}', '{"text":1,"title":""}',
+    '{"text":"","title":"","extra":""}', '{"text":"\\u0000","title":""}', '[]', '{') as $invalid
+) {
+    $check(AxiomPress\Core\JsonInput::object($invalid, array('text', 'title')) === null);
+}
 $db = PDO::connect('sqlite::memory:', null, null, array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION));
 $db->createFunction('OCTET_LENGTH', static fn(string $value): int => strlen($value), 1);
 $db->exec('CREATE TABLE axiompress_public_test (ID INTEGER PRIMARY KEY, post_title TEXT,

@@ -1,6 +1,8 @@
 # PostgreSQL domain foundation
 
-This is the first Phase 3 slice: an initial PostgreSQL 18 schema and a deployment-only migration runner. It does not enable native login, sessions, authenticated content commands or plugin database access. The existing native MySQL read projection and WordPress comparison site are unchanged. No existing site data is migrated or discarded.
+This contains the PostgreSQL 18 domain schema, deployment-only migration runner and native authentication migration. Migration 0001 establishes the foundation; 0002 adds function-only login/session operations. Migration 0003 enables fixed core-only article commands with session/resource checks, receipts and a publication outbox. Plugin database access is not enabled. The existing native MySQL read projection and WordPress comparison site remain available. The native anonymous endpoint can now select the restricted PostgreSQL reader; see [public read configuration](../../../src/axiompress/PublicReads.md). No existing site data is migrated or discarded.
+
+Before migrating a new or existing database through 0002, its administrator must execute `auth-bootstrap.sql` once to create the reserved cluster-wide `axiom_authenticator` group and grant database CONNECT. Provision site logins and OID bindings separately as described in [the authentication contract](../../../src/axiompress/Auth/README.md). The immutable 0001 migration and original bootstrap remain unchanged. Existing applied checksums must never be rewritten.
 
 ## Ownership and provisioning
 
@@ -14,9 +16,9 @@ The administrator must provision the deployer password and trusted server TLS ce
 
 ## Initial schema
 
-`0001_identity_content.sql` creates private identity, access-policy and content schemas. Sites, users, credentials and memberships have explicit keys and constraints. Credentials require the shape of an Argon2id hash; hash generation/verification, password policy, rate limiting, sessions and CSRF are later core-authentication work. SQL format checks do not validate the cryptographic correctness of a password hash.
+`0001_identity_content.sql` creates private identity, access-policy and content schemas. Sites, users, credentials and memberships have explicit keys and constraints. Credentials require the shape of an Argon2id hash; SQL format checks do not validate its cryptographic correctness. Native authentication now verifies a fixed Argon2id profile and implements bounded rate/session state in 0002. Credential provisioning, enrollment and recovery remain operator/future service work.
 
-Articles and revisions use composite site/resource keys. Current and published revision references are deferrable foreign keys to the same article and site, allowing creation in one transaction without dangling committed references. Authors and revision creators must have a membership in that site. Titles are bounded to 4096 bytes and bodies to 131072 bytes, including multibyte UTF-8. Revision identifiers are opaque 64-character lowercase hexadecimal tokens; this schema does not establish a content-hash algorithm. Optimistic `lock_version` is available for the forthcoming typed command service; that service must enforce authorization and compare-and-swap at commit. No runtime write role is enabled by this slice.
+Articles and revisions use composite site/resource keys. Current and published revision references are deferrable foreign keys to the same article and site, allowing creation in one transaction without dangling committed references. Authors and revision creators must have a membership in that site. Titles are bounded to 4096 bytes and bodies to 131072 bytes, including multibyte UTF-8. Revision identifiers are opaque 64-character lowercase hexadecimal tokens; this schema does not establish a content-hash algorithm. Optimistic `lock_version` is available for the forthcoming typed command service; the implemented core command service enforces authorization and compare-and-swap within its transaction. No direct runtime table-write role is enabled; migration 0003 grants only execution of the fixed article command function.
 
 Readers see only a currently published, nonfuture article and its published revision. A newer draft revision remains private even when the article has an older published revision. Column grants also hide current draft pointers and author metadata. Forced row policies bind access through deployment-owned `axiom_access.reader_sites` records to the authenticated database login's role OID. Session variables and SET ROLE cannot select another site; a dropped/recreated login name does not inherit its old OID binding. Provisioners must explicitly manage bindings when creating, rotating or retiring logins. Database roles are not end-user CMS roles.
 
@@ -28,13 +30,13 @@ Build the `migration` target of `tools/axiompress/database/Dockerfile` from the 
 
 Supply these deployment environment values:
 
-| Variable                 | Purpose                                                          |
-| ------------------------ | ---------------------------------------------------------------- |
-| `AXIOM_PG_HOST`          | PostgreSQL hostname matching its certificate                     |
-| `AXIOM_PG_PORT`          | Valid TCP port, usually 5432                                     |
-| `AXIOM_PG_DATABASE`      | Dedicated database name                                          |
-| `AXIOM_PG_PASSWORD_FILE` | Mounted deployer password, 16–256 bytes without trailing newline |
-| `AXIOM_PG_CA_FILE`       | Mounted trusted CA certificate/bundle                            |
+| Variable                 | Purpose                                                                 |
+| ------------------------ | ----------------------------------------------------------------------- |
+| `AXIOM_PG_HOST`          | PostgreSQL hostname matching its certificate                            |
+| `AXIOM_PG_PORT`          | Valid TCP port, usually 5432                                            |
+| `AXIOM_PG_DATABASE`      | Dedicated database name                                                 |
+| `AXIOM_PG_PASSWORD_FILE` | Mounted deployer password, 16Ã¢â‚¬â€œ256 bytes without trailing newline |
+| `AXIOM_PG_CA_FILE`       | Mounted trusted CA certificate/bundle                                   |
 
 The SQL login is always `axiom_deployer`. TLS uses `verify-full`; there is no plaintext-test switch. The CLI is `php /app/migrate.php [operator-owned-migration-directory]`, defaulting to `/app/migrations`. Success emits the applied versions; an already-current database emits an empty list. Failure exits nonzero with a bounded diagnostic reference, without printing SQL, passwords or data. Use a dedicated connection, not an application pool.
 

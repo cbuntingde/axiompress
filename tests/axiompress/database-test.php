@@ -17,8 +17,16 @@ $check = static function (bool $condition, string $label) use (&$checks): void {
 };
 $db = Connection::fromEnvironment();
 $runner = new MigrationRunner($db);
-$check($runner->migrate('/app/migrations') === array(1), 'Initial migration');
-$check($runner->migrate('/app/migrations') === array(), 'Already current');
+$foundation = '/tmp/axiompress-foundation-' . bin2hex(random_bytes(12));
+mkdir($foundation, 0700);
+copy('/app/migrations/0001_identity_content.sql', $foundation . '/0001_identity_content.sql');
+try {
+    $check($runner->migrate($foundation) === array(1), 'Initial migration');
+    $check($runner->migrate($foundation) === array(), 'Already current');
+} finally {
+    unlink($foundation . '/0001_identity_content.sql');
+    rmdir($foundation);
+}
 $check($db->query('SELECT current_user')->fetchColumn() === 'axiom_deployer', 'Role restored');
 $db->exec('SET ROLE axiom_owner');
 $db->beginTransaction();

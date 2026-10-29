@@ -7,6 +7,7 @@ use AxiomPress\Core\ContentLimitExceeded;
 use AxiomPress\Core\ExtensionClient;
 use AxiomPress\Core\Kernel;
 use AxiomPress\Core\PublicContentRepository;
+use AxiomPress\Core\PublishedContentRepository;
 use AxiomPress\Core\Response;
 
 require dirname(__DIR__) . '/bootstrap.php';
@@ -18,9 +19,49 @@ try {
         $socket,
         (string) getenv('AXIOMPRESS_READING_INSTALLATION')
     );
-    $kernel = new Kernel(static fn(): PublicContentRepository =>
-        PublicContentRepository::connect(Configuration::fromEnvironment()), $extension);
-    $response = $kernel->handle($method, $_SERVER['REQUEST_URI'] ?? '');
+    $kernel = new Kernel(static function (): PublicContentRepository|PublishedContentRepository {
+        $backend = getenv('AXIOM_PUBLIC_BACKEND');
+        return match ($backend) {
+            false, 'mysql' => PublicContentRepository::connect(Configuration::fromEnvironment()),
+            'postgres' => PublishedContentRepository::fromEnvironment(),
+            default => throw new RuntimeException('Invalid public content backend.'),
+        };
+    }, $extension);
+    $uri = $_SERVER['REQUEST_URI'] ?? '';
+    if (str_starts_with($uri, '/v1/articles')) {
+        $content = new AxiomPress\Core\Content\Kernel(static fn(): AxiomPress\Core\Auth\Store =>
+            AxiomPress\Core\Auth\Store::fromEnvironment(), (string) getenv('AXIOM_AUTH_ORIGIN'));
+        $body = file_get_contents('php://input', false, null, 0, 819201);
+        $response = $content->handle(
+            $method,
+            $uri,
+            $body === false ? '' : $body,
+            $_SERVER['HTTP_COOKIE'] ?? '',
+            $_SERVER['HTTP_ORIGIN'] ?? '',
+            $_SERVER['CONTENT_TYPE'] ?? '',
+            $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '',
+            $_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? '',
+            ($_SERVER['HTTPS'] ?? '') === 'on' || getenv('AXIOM_AUTH_TLS_TERMINATED') === '1'
+        );
+    } elseif (str_starts_with($uri, '/v1/session')) {
+        $auth = new AxiomPress\Core\Auth\Kernel(static fn(): AxiomPress\Core\Auth\Store =>
+            AxiomPress\Core\Auth\Store::fromEnvironment(), (string) getenv('AXIOM_AUTH_ORIGIN'));
+        $body = file_get_contents('php://input', false, null, 0, 8193);
+        $response = $auth->handle(
+            $method,
+            $uri,
+            $body === false ? '' : $body,
+            $_SERVER['HTTP_COOKIE'] ?? '',
+            $_SERVER['HTTP_ORIGIN'] ?? '',
+            $_SERVER['CONTENT_TYPE'] ?? '',
+            $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '',
+            $_SERVER['REMOTE_ADDR'] ?? '',
+            ($_SERVER['HTTPS'] ?? '') === 'on'
+            || getenv('AXIOM_AUTH_TLS_TERMINATED') === '1'
+        );
+    } else {
+        $response = $kernel->handle($method, $uri);
+    }
     // Encoding is part of the operation: invalid stored UTF-8 cannot produce a half-written success.
     $response->body();
 } catch (ContentLimitExceeded $error) {

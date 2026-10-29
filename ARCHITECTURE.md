@@ -1,6 +1,6 @@
 # AxiomPress architecture and authority
 
-Status: independent fork under development. This describes implemented boundaries and target decisions; it does not claim a completed replacement CMS or production isolation. Follow AGENTS.md, AXIOMPRESS_RELEASE_POLICY.md and FORK_PROVENANCE.md. Legacy WordPress remains available for comparison and data access during staged replacement.
+Status: independent fork under development. Phases 1 through 3 meet the local development gates documented in tools/axiompress/database/PHASE3_ACCEPTANCE.md. This describes implemented boundaries and target decisions; it does not claim a completed replacement CMS or production isolation. Follow AGENTS.md, AXIOMPRESS_RELEASE_POLICY.md and FORK_PROVENANCE.md. Legacy WordPress remains available for comparison and data access during staged replacement.
 
 ## Trust boundaries
 

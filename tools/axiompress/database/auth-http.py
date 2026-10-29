@@ -1,6 +1,7 @@
 """Actual HTTPS/frontend-to-core proof; backend is loopback-only in this disposable fixture."""
 
 import http.client
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import secrets
@@ -12,7 +13,7 @@ import urllib.error
 import urllib.request
 
 
-def verify(root, directory, network, docker, containers, name):
+def verify(root, directory, network, docker, containers, name, sql, plugin=None):
     backend_port = None
 
     class Proxy(BaseHTTPRequestHandler):
@@ -56,6 +57,7 @@ def verify(root, directory, network, docker, containers, name):
     origin = 'https://localhost:' + str(server.server_port)
     thread = None
     checks = 0
+    core_containers = []
 
     def check(value, label):
         nonlocal checks
@@ -69,11 +71,16 @@ def verify(root, directory, network, docker, containers, name):
         image = docker('image', 'inspect', tag, '--format', '{{.Id}}')
         container = name + '-auth-core'
         containers.append(container)
+        core_containers.append(container)
         mounts = [part for source, target in (('auth-a', 'auth'), ('reader-a', 'public'), ('ca.crt', 'ca.crt')) for part in (
             '--mount', 'type=bind,source=' + str(directory / source) + ',target=/run/secrets/' + target + ',readonly')]
+        if plugin is not None:
+            mounts += ['--mount', 'type=volume,source=' + plugin.volumes['channel'] + ',target=/channel,readonly',
+                       '--env', 'AXIOMPRESS_BROKER_SOCKET=/channel/broker.sock',
+                       '--env', 'AXIOMPRESS_READING_INSTALLATION=service-reading']
         runtime = ['run', '-d', '--name', container, '--network', network, '--read-only', '--cap-drop=ALL',
                '--security-opt=no-new-privileges:true', '--memory=128m', '--pids-limit=32',
-               '--tmpfs=/tmp:rw,size=16m', '--publish', '127.0.0.1::8080',
+               '--tmpfs=/tmp:rw,size=16m', '--publish', '127.0.0.1::8080', '--env', 'PHP_CLI_SERVER_WORKERS=4',
                '--env', 'AXIOM_AUTH_PG_HOST=postgres', '--env', 'AXIOM_AUTH_PG_PORT=5432',
                '--env', 'AXIOM_AUTH_PG_DATABASE=axiom_auth_test', '--env', 'AXIOM_AUTH_PG_USER=auth_a',
                '--env', 'AXIOM_AUTH_PG_PASSWORD_FILE=/run/secrets/auth', '--env', 'AXIOM_AUTH_SITE_ID=1',
@@ -151,9 +158,35 @@ def verify(root, directory, network, docker, containers, name):
         check(status == 200, 'Actual HTTPS edit')
         check(request('PUT', path, dict(expected, title='Stale', text='Stale'),
                       cookie=cookie, csrf=csrf, key=secrets.token_hex(32))[0] == 409, 'Actual HTTP stale edit conflict')
+        race_expected = {'expected_revision': updated['revision'], 'expected_version': updated['version']}
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            competing = [executor.submit(request, 'PUT', path, dict(race_expected, title='HTTPS edit', text='Edited'),
+                                         cookie=cookie, csrf=csrf, key=secrets.token_hex(32)) for _ in range(2)]
+            outcomes = [future.result(timeout=18) for future in competing]
+        check(sorted(result[0] for result in outcomes) == [200, 409],
+              'Independent concurrent HTTPS edits have exactly one committed winner')
+        updated = next(result[2] for result in outcomes if result[0] == 200)
         expected = {'expected_revision': updated['revision'], 'expected_version': updated['version']}
+        sql("UPDATE axiom_identity.memberships SET role='author' WHERE site_id=1 AND user_id=1")
+        check(request('POST', path + '/publish', expected, cookie=cookie, csrf=csrf,
+                      key=secrets.token_hex(32))[0] == 403, 'Actual HTTP role downgrade forbids publication')
+        sql("UPDATE axiom_identity.memberships SET role='editor' WHERE site_id=1 AND user_id=1")
+        retry_key = secrets.token_hex(32)
+        sql("CREATE FUNCTION axiom_content.fail_http_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ "
+            "BEGIN RAISE EXCEPTION 'Injected HTTP failure'; END; $$; "
+            "CREATE TRIGGER fail_http_receipt BEFORE INSERT ON axiom_content.command_receipts "
+            "FOR EACH ROW EXECUTE FUNCTION axiom_content.fail_http_receipt()")
+        try:
+            check(request('POST', path + '/publish', expected, cookie=cookie, csrf=csrf, key=retry_key)[0] == 503,
+                  'Actual HTTP transaction failure is non-success')
+            check(request('GET', public_path)[0] == 404
+                  and request('GET', path, cookie=cookie)[2]['version'] == updated['version'],
+                  'Actual HTTP transaction failure leaves publication and version unchanged')
+        finally:
+            sql('DROP TRIGGER fail_http_receipt ON axiom_content.command_receipts; '
+                'DROP FUNCTION axiom_content.fail_http_receipt()')
         status, _, published = request('POST', path + '/publish', expected,
-                                      cookie=cookie, csrf=csrf, key=secrets.token_hex(32))
+                                      cookie=cookie, csrf=csrf, key=retry_key)
         check(status == 200 and published['status'] == 'published', 'Actual HTTPS publication')
         status, public_headers, public = request('GET', public_path)
         check(status == 200 and public['content']['text'] == 'Edited'
@@ -170,6 +203,53 @@ def verify(root, directory, network, docker, containers, name):
         check(status == 200 and request('GET', public_path)[2]['content']['text'] == 'Edited',
               'Actual public route never follows a new private draft')
         expected = {'expected_revision': draft['revision'], 'expected_version': draft['version']}
+        if plugin is not None:
+            check(public.get('reading_summary', '').startswith('<span class="axiompress-reading-summary">1 words'),
+                  'Real gVisor plugin decorates the newly published PostgreSQL article')
+            check('3 words' not in request('GET', public_path)[2].get('reading_summary', ''),
+                  'Plugin never renders the newer three-word private draft')
+            plugin.disable()
+            degraded = request('GET', public_path)
+            check(degraded[0] == 200 and 'extension_error' in degraded[2]
+                  and 'reading_summary' not in degraded[2], 'Revoked plugin grant fails closed without hiding public content')
+            plugin.select(plugin.approved)
+            check('reading_summary' in request('GET', public_path)[2], 'Grant restoration advances generation and recovers')
+            plugin.select(plugin.hostile)
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                pending = executor.submit(request, 'GET', public_path)
+                plugin.worker()
+                status, _, changed = request('POST', path + '/publish', expected,
+                                             cookie=cookie, csrf=csrf, key=secrets.token_hex(32))
+                check(status == 200, 'Authenticated republish commits while old revision is in flight')
+                check(pending.result(timeout=18)[0] == 409, 'In-flight plugin cannot return superseded revision')
+            expected = {'expected_revision': changed['revision'], 'expected_version': changed['version']}
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                pending = executor.submit(request, 'GET', public_path)
+                worker = plugin.worker()
+                check(worker['HostConfig']['Runtime'] == 'runsc'
+                      and worker['HostConfig']['NetworkMode'] == 'none' and not worker['Mounts'],
+                      'Observed actual gVisor worker has no network or credential mounts')
+                status, _, withdrawn = request('POST', path + '/unpublish', expected,
+                                               cookie=cookie, csrf=csrf, key=secrets.token_hex(32))
+                check(status == 200, 'Authenticated withdrawal commits during an isolated invocation')
+                check(pending.result(timeout=18)[0] == 404, 'Failed in-flight plugin cannot return withdrawn snapshot')
+            plugin.select(plugin.approved)
+            expected = {'expected_revision': withdrawn['revision'], 'expected_version': withdrawn['version']}
+            status, _, republished = request('POST', path + '/publish', expected,
+                                             cookie=cookie, csrf=csrf, key=secrets.token_hex(32))
+            check(status == 200, 'Native authenticated publication recovers after plugin failure')
+            docker('stop', '--time=20', plugin.name)
+            degraded = request('GET', public_path)
+            check(degraded[0] == 200 and 'extension_error' in degraded[2], 'Broker outage preserves public availability')
+            check(request('GET', path, cookie=cookie)[0] == 200, 'Broker outage does not break core private reads')
+            docker('start', plugin.name)
+            for _ in range(30):
+                recovered = request('GET', public_path)
+                if recovered[0] == 200 and 'reading_summary' in recovered[2]:
+                    break
+                time.sleep(0.1)
+            check('reading_summary' in recovered[2], 'Broker restart restores isolated rendering')
+            expected = {'expected_revision': republished['revision'], 'expected_version': republished['version']}
         check(request('POST', path + '/unpublish', expected,
                       cookie=cookie, csrf=csrf, key=secrets.token_hex(32))[0] == 200, 'Actual HTTPS unpublish')
         check(request('GET', public_path)[0] == 404 and request('HEAD', public_path)[0] == 404,
@@ -177,13 +257,14 @@ def verify(root, directory, network, docker, containers, name):
         check(request('DELETE', '/v1/session', cookie=cookie, csrf=body['csrf_token'])[0] == 200, 'Actual HTTPS logout')
         check(request('GET', '/v1/session', cookie=cookie)[0] == 401, 'Actual HTTP replay denied')
         state = json.loads(docker('inspect', container))[0]
-        check(state['HostConfig']['ReadonlyRootfs'] and len(state['Mounts']) == 3
+        check(state['HostConfig']['ReadonlyRootfs'] and len(state['Mounts']) == (4 if plugin is not None else 3)
               and all(not mount['RW'] for mount in state['Mounts']), 'Only read-only runtime secrets/CA mounts')
         for index, (before, after) in enumerate((
                 ('AXIOM_PUBLIC_BACKEND=postgres', 'AXIOM_PUBLIC_BACKEND=invalid'),
                 ('AXIOM_PUBLIC_PG_PASSWORD_FILE=/run/secrets/public', 'AXIOM_PUBLIC_PG_PASSWORD_FILE=/run/secrets/auth'))):
             broken = container + '-bad-' + str(index)
             containers.append(broken)
+            core_containers.append(broken)
             arguments = runtime.copy()
             arguments[arguments.index(container)] = broken
             arguments[arguments.index(before)] = after
@@ -192,9 +273,16 @@ def verify(root, directory, network, docker, containers, name):
             status, _, failure = request('GET', public_path)
             check(status == 503 and failure['error'] == 'unavailable' and len(failure['diagnostic_id']) == 24,
                   'Invalid public backend/credential fails closed without fallback')
-        return {'outcome': 'passed', 'checks': checks, 'core_image': image}
+        return {'outcome': 'passed', 'checks': checks, 'core_image': image,
+                'isolated_plugin': plugin is not None, 'worker_runtime': 'runsc' if plugin is not None else None,
+                'supervisor_image': plugin.image if plugin is not None else None,
+                'approved_plugin_image': plugin.approved if plugin is not None else None,
+                'production_acceptance': False}
     finally:
         if thread is not None:
             server.shutdown()
             thread.join(5)
         server.server_close()
+        for container in reversed(core_containers):
+            if docker('ps', '-aq', '--filter', 'name=^/' + container + '$'):
+                docker('rm', '-f', container)

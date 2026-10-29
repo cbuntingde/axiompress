@@ -1,5 +1,7 @@
 # PostgreSQL domain foundation
 
+The [Phase 3 acceptance contract](PHASE3_ACCEPTANCE.md) maps the completed native login/article/public-read/isolated-plugin workflow to its tests. Add `--isolated-plugin` on the native Linux gVisor host to run that full gate. Plain CI checks do not require or claim runsc acceptance. The flagged proof preserves its separate result under ignored docs.
+
 This contains the PostgreSQL 18 domain schema, deployment-only migration runner and native authentication migration. Migration 0001 establishes the foundation; 0002 adds function-only login/session operations. Migration 0003 enables fixed core-only article commands with session/resource checks, receipts and a publication outbox. Plugin database access is not enabled. The existing native MySQL read projection and WordPress comparison site remain available. The native anonymous endpoint can now select the restricted PostgreSQL reader; see [public read configuration](../../../src/axiompress/PublicReads.md). No existing site data is migrated or discarded.
 
 Before migrating a new or existing database through 0002, its administrator must execute `auth-bootstrap.sql` once to create the reserved cluster-wide `axiom_authenticator` group and grant database CONNECT. Provision site logins and OID bindings separately as described in [the authentication contract](../../../src/axiompress/Auth/README.md). The immutable 0001 migration and original bootstrap remain unchanged. Existing applied checksums must never be rewritten.

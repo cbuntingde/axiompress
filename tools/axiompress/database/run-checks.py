@@ -1,6 +1,7 @@
 """Disposable PostgreSQL 18 schema/migration proof; never targets an existing database."""
 
 import json
+import argparse
 import os
 from pathlib import Path
 import secrets
@@ -18,6 +19,9 @@ containers = []
 network_created = False
 report = None
 operator_checks = []
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--isolated-plugin', action='store_true', help='Require native gVisor for Phase 3 acceptance')
+options = parser.parse_args()
 
 
 def docker(*args, data=None, timeout=30):
@@ -170,8 +174,18 @@ with tempfile.TemporaryDirectory(prefix='axiompress-schema-', dir='/tmp') as tem
                                             '-d', 'display_errors=stderr', '/checks/published-content-test.php', timeout=90))
         if report['public']['outcome'] != 'passed':
             raise RuntimeError('Public read checks did not pass')
-        report['https'] = runpy.run_path(str(ROOT / 'tools/axiompress/database/auth-http.py'))['verify'](
-            ROOT, directory, NETWORK, docker, containers, NAME)
+        plugin = None
+        try:
+            if options.isolated_plugin:
+                plugin = runpy.run_path(str(ROOT / 'tools/axiompress/service/phase3-fixture.py'))['Fixture'](
+                    ROOT, docker, containers, NAME)
+                plugin.start()
+            report['https'] = runpy.run_path(str(ROOT / 'tools/axiompress/database/auth-http.py'))['verify'](
+                ROOT, directory, NETWORK, docker, containers, NAME,
+                lambda statement: sql(statement, database='axiom_auth_test'), plugin)
+        finally:
+            if plugin is not None:
+                plugin.close()
         report['postgres_image'] = IMAGE
         report['verification_image'] = verification_image
     finally:
@@ -183,6 +197,10 @@ with tempfile.TemporaryDirectory(prefix='axiompress-schema-', dir='/tmp') as tem
 
 (ROOT / 'docs').mkdir(exist_ok=True)
 (ROOT / 'docs/axiompress-phase3-database-last.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+if options.isolated_plugin:
+    if not report['https']['isolated_plugin'] or report['https']['worker_runtime'] != 'runsc':
+        raise RuntimeError('Phase 3 acceptance did not exercise the required isolated plugin')
+    (ROOT / 'docs/axiompress-phase3-acceptance-last.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
 print('PASS: ' + str(report['checks']) + ' PostgreSQL migration/schema checks')
 print('PASS: ' + str(report['authentication']['checks']) + ' authentication checks; '
       + str(report['https']['checks']) + ' HTTPS integration checks')

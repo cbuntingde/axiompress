@@ -6,7 +6,7 @@ Canonical project domain: [axiompress.dev](https://axiompress.dev).
 
 ## Project status
 
-**Early development.** Phase 1 architecture, contracts and the agreed local prototype are complete. The full CMS rewrite and production isolation/deployment are not complete.
+**Early development.** Phases 1 through 3 meet their agreed local development gates: architecture, isolated extensions and the minimal authenticated CMS vertical slice. The full CMS rewrite and production isolation/deployment are not complete.
 
 The current checkout includes:
 
@@ -23,7 +23,7 @@ The current checkout includes:
 
 PostgreSQL 18 is selected for the future domain model. Public reads can use native PostgreSQL articles through an explicit backend setting; the inherited MySQL SELECT-only projection remains the default comparison source. gVisor systrap is integrated with the extension service and exercised on a dedicated WSL2 Linux engine. Runc remains development-only; production deployment still requires independent host and security acceptance. Gutenberg block grammar and reviewed UI packages will be reused selectively.
 
-Core article commands and native authentication have development database/HTTPS evidence. Full administration/editor integration, data migration, plugin command authority, outbox delivery and signed release infrastructure remain later-phase work; production admission and deployment acceptance remain required. Legacy executable plugin/theme compatibility is outside the target architecture.
+Core authentication, article commands, anonymous reads and an isolated plugin pass the [Phase 3 acceptance gate](tools/axiompress/database/PHASE3_ACCEPTANCE.md), including database failures and publication changes during plugin execution. Full administration/editor integration, data migration, plugin command authority, outbox delivery and signed release infrastructure remain later-phase work; production admission and deployment acceptance remain required. Legacy executable plugin/theme compatibility is outside the target architecture.
 
 ## Architecture and policies
 

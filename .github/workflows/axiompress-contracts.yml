@@ -58,5 +58,5 @@ jobs:
             - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
               with:
                   persist-credentials: false
-            - name: PostgreSQL schema, TLS, roles and migration failure boundaries
+            - name: PostgreSQL auth, content, public HTTP and migration boundaries
               run: sudo python3 tools/axiompress/database/run-checks.py

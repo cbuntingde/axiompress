@@ -13,6 +13,7 @@ The current checkout includes:
 -   A native PHP 8.5 read-only content API that loads no WordPress plugins, themes, hooks or bootstrap.
 -   A bounded extension protocol, scoped content broker and restricted Linux worker supervisor.
 -   A Linux peer-authenticated core/broker service with gVisor integration, bounded admission and crash recovery.
+-   An initial PostgreSQL 18 domain schema and deployment-only migration runner with restricted reader roles.
 -   Operator-managed package/image approval, persistent installation grants, revocation, shared admission and recovery checks.
 -   Core protections that prevent official WordPress packages from replacing AxiomPress.
 -   Focused tests and repeatable database, runtime, editor and performance experiments.
@@ -32,6 +33,7 @@ Native authentication, content writes, full administration/editor integration, d
 -   [Extension service, Linux host setup and verification](tools/axiompress/service/README.md)
 -   [Package and installation policy](tools/axiompress/policy/README.md)
 -   [Domain contract designs](tools/axiompress/contracts/README.md)
+-   [PostgreSQL schema and migration operations](tools/axiompress/database/README.md)
 
 Official WordPress is a source of selectively reviewed changes, not a branch to merge routinely. Security fixes must be assessed against both retained code and equivalent rewritten behavior. Official core packages must never be installed over this fork. Production code and configuration belong to a separate deployment identity and must be read-only to application identities.
 

@@ -1,0 +1,8 @@
+**
+!tools
+!tools/axiompress
+!tools/axiompress/database
+!tools/axiompress/database/**
+!tests
+!tests/axiompress
+!tests/axiompress/database-test.php

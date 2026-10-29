@@ -1,4 +1,6 @@
 <?php
+declare( strict_types=1 );
+
 /**
  * @package Hello_Dolly
  * @version 1.7.2
@@ -18,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-function hello_dolly_get_lyric() {
+function hello_dolly_get_lyric(): string {
 	/** These are the lyrics to Hello Dolly */
 	$lyrics = "Hello, Dolly
 Well, hello, Dolly
@@ -51,23 +53,21 @@ Dolly'll never go away again";
 	// Here we split it into lines.
 	$lyrics = explode( "\n", $lyrics );
 
-	// And then randomly choose a line.
-	return wptexturize( $lyrics[ mt_rand( 0, count( $lyrics ) - 1 ) ] );
+	// And then randomly choose a line. wp_rand() uses random_int() internally.
+	return wptexturize( $lyrics[ wp_rand( 0, count( $lyrics ) - 1 ) ] );
 }
 
 // This just echoes the chosen line, we'll position it later.
-function hello_dolly() {
-	$chosen = hello_dolly_get_lyric();
-	$lang   = '';
-	if ( 'en_' !== substr( get_user_locale(), 0, 3 ) ) {
-		$lang = ' lang="en"';
-	}
+function hello_dolly(): void {
+	$chosen      = hello_dolly_get_lyric();
+	$is_english  = str_starts_with( get_user_locale(), 'en_' );
+	$lang_suffix = $is_english ? '' : ' lang="en"';
 
 	printf(
 		'<p id="dolly"><span class="screen-reader-text">%s </span><span dir="ltr"%s>%s</span></p>',
-		__( 'Quote from Hello Dolly song, by Jerry Herman:' ),
-		$lang,
-		$chosen
+		esc_html__( 'Quote from Hello Dolly song, by Jerry Herman:', 'hello-dolly' ),
+		$lang_suffix,
+		wp_kses_post( $chosen )
 	);
 }
 
@@ -75,7 +75,7 @@ function hello_dolly() {
 add_action( 'admin_notices', 'hello_dolly' );
 
 // We need some CSS to position the paragraph.
-function dolly_css() {
+function dolly_css(): void {
 	echo "
 	<style type='text/css'>
 	#dolly {

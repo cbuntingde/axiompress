@@ -1,0 +1,6 @@
+# Independent core/package bytes must be stable across Windows and Linux checkouts.
+/src/axiompress/** text eol=lf
+/tools/axiompress/** text eol=lf
+/tests/axiompress/** text eol=lf
+/phpcs-axiompress.xml.dist text eol=lf
+/.github/workflows/axiompress-contracts.yml text eol=lf

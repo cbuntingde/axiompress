@@ -36,6 +36,8 @@ This direction does not authorize unrelated rewrites or removal of working funct
 
 ## Verification and scope
 
+- Independent PHP under `src/axiompress/`, `tools/axiompress/`, and `tests/axiompress/` targets 64-bit PHP 8.5 and PSR-12 with LF source bytes. Run `composer lint:axiompress`, `composer test:protocol`, and `composer test:broker`; retain WordPress coding standards for inherited modules. The focused AxiomPress workflow checks the independent paths separately; excluding them from the legacy ruleset is not permission to skip lint.
+
 - Preserve unrelated working-tree changes.
 - Use focused checks appropriate to the change. Report untested runtime, migration, isolation, and deployment gates explicitly.
 - For security ports, verify the affected behavior and the fork's boundary conditions; a clean patch application or successful build alone is insufficient.

@@ -74,6 +74,7 @@
 		}
 	},
 	"scripts": {
+		"lint:axiompress": "@php ./vendor/bin/phpcs --standard=phpcs-axiompress.xml.dist --report=summary",
 		"test:protocol": "@php tests/axiompress/protocol-test.php",
 		"test:broker": "@php tests/axiompress/broker-test.php",
 		"phpstan": "@php ./vendor/bin/phpstan analyse --memory-limit=2G",

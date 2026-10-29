@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:axiompress:domain-design:0.1",
+  "description": "Design-only contracts. No current endpoint dispatches these commands/events or grants authority from them. Trusted identity and grant context is bound separately.",
+  "oneOf": [
+    { "$ref": "#/$defs/proposeRevision" },
+    { "$ref": "#/$defs/publishedEvent" },
+    { "$ref": "#/$defs/serviceGrant" }
+  ],
+  "$defs": {
+    "contentId": { "type": "string", "maxLength": 128, "pattern": "^post:[1-9][0-9]*(?![\\s\\S])" },
+    "revision": { "type": "string", "pattern": "^[a-f0-9]{64}(?![\\s\\S])" },
+    "proposeRevision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["api", "kind", "operation", "id", "invocation", "params"],
+      "properties": {
+        "api": { "const": "axiompress.domain.design/0.1" },
+        "kind": { "const": "command" },
+        "operation": { "const": "content.propose_revision" },
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_-]{1,128}(?![\\s\\S])" },
+        "invocation": { "type": "string", "pattern": "^[a-f0-9]{64}(?![\\s\\S])" },
+        "params": {
+          "type": "object", "additionalProperties": false,
+          "required": ["content_id", "expected_revision", "idempotency_key", "changes"],
+          "properties": {
+            "content_id": { "$ref": "#/$defs/contentId" },
+            "expected_revision": { "$ref": "#/$defs/revision" },
+            "idempotency_key": { "type": "string", "pattern": "^[a-zA-Z0-9_-]{16,128}(?![\\s\\S])" },
+            "changes": {
+              "type": "object", "minProperties": 1, "additionalProperties": false,
+              "properties": { "title": { "type": "string", "maxLength": 4096 }, "text": { "type": "string", "maxLength": 131072 } }
+            }
+          }
+        }
+      }
+    },
+    "publishedEvent": {
+      "type": "object", "additionalProperties": false,
+      "required": ["api", "kind", "event", "event_id", "site_id", "content_id", "revision", "occurred_at"],
+      "properties": {
+        "api": { "const": "axiompress.domain.design/0.1" }, "kind": { "const": "event" },
+        "event": { "const": "content.published.v1" },
+        "event_id": { "type": "string", "pattern": "^[a-f0-9]{32}(?![\\s\\S])" },
+        "site_id": { "type": "string", "pattern": "^site:[1-9][0-9]*(?![\\s\\S])", "maxLength": 128 },
+        "content_id": { "$ref": "#/$defs/contentId" }, "revision": { "$ref": "#/$defs/revision" },
+        "occurred_at": { "type": "string", "format": "date-time", "pattern": "Z(?![\\s\\S])" }
+      }
+    },
+    "serviceGrant": {
+      "type": "object", "additionalProperties": false,
+      "required": ["api", "kind", "principal", "site_id", "installation", "generation", "operations", "resources", "expires_at"],
+      "properties": {
+        "api": { "const": "axiompress.domain.design/0.1" }, "kind": { "const": "service_grant" },
+        "principal": { "type": "string", "pattern": "^service:[a-z0-9_-]{1,64}(?![\\s\\S])" },
+        "site_id": { "type": "string", "maxLength": 128, "pattern": "^site:[1-9][0-9]*(?![\\s\\S])" },
+        "installation": { "type": "string", "pattern": "^[a-zA-Z0-9_-]{1,128}(?![\\s\\S])" },
+        "generation": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "operations": { "const": ["content.read"] },
+        "resources": { "type": "array", "minItems": 1, "maxItems": 100, "uniqueItems": true, "items": { "$ref": "#/$defs/contentId" } },
+        "expires_at": { "type": "string", "format": "date-time", "pattern": "Z(?![\\s\\S])" }
+      }
+    }
+  }
+}

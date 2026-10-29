@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <ruleset name="WordPress Coding Standards">
-	<description>Apply WordPress Coding Standards to all Core files</description>
+	<description>Apply WordPress Coding Standards to retained Core; independent code has its own ruleset.</description>
 
 	<!--
 	#############################################################################
@@ -49,6 +49,11 @@
 	<exclude-pattern>/.cache/*</exclude-pattern>
 	<exclude-pattern>/node_modules/*</exclude-pattern>
 	<exclude-pattern>/vendor/*</exclude-pattern>
+
+	<!-- Independent AxiomPress code uses phpcs-axiompress.xml.dist, enforced separately in CI. -->
+	<exclude-pattern>/src/axiompress/*</exclude-pattern>
+	<exclude-pattern>/tools/axiompress/*</exclude-pattern>
+	<exclude-pattern>/tests/axiompress/*</exclude-pattern>
 
 	<exclude-pattern>/src/wp-admin/includes/class-ftp*</exclude-pattern>
 	<exclude-pattern>/src/wp-admin/includes/class-pclzip\.php</exclude-pattern>

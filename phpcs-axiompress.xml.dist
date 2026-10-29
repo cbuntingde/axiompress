@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<ruleset name="AxiomPress PHP">
+    <description>PSR-12 for the independent core, broker, runtime tools and standalone tests.</description>
+    <arg name="extensions" value="php"/>
+    <file>src/axiompress</file>
+    <file>tools/axiompress</file>
+    <file>tests/axiompress</file>
+    <rule ref="PSR12"/>
+</ruleset>

@@ -1,5 +1,8 @@
 # gitignore file for WordPress Core
 
+# Local architecture plans and working documents
+/docs/
+
 # Configuration files with possibly sensitive information
 .env
 wp-config.php

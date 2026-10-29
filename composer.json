@@ -8,7 +8,7 @@
 		"blog", "cms", "wordpress", "wp"
 	],
 	"support": {
-		"issues": "https://github.com/cbuntingde/wordpress-develop/issues"
+		"issues": "https://github.com/cbuntingde/axiompress/issues"
 	},
 	"require": {
 		"ext-hash": "*",

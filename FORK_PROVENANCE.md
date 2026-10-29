@@ -14,3 +14,9 @@ Evidence: local `git remote -v`, `git rev-parse HEAD`, and `git log -1 --format=
 At recording time, local changes existed in `.gitignore`, `composer.json`, and `src/wp-content/plugins/hello.php`, with untracked `AGENTS.md` and `tests/phpunit/tests/plugins/`. Preserve and assess those separately; they are not part of the baseline commit.
 
 Retain this baseline when recording future selective upstream ports. Preserve required license notices and attribution.
+
+## Repository identity change: 2026-10-29
+
+The existing GitHub repository was renamed from `cbuntingde/wordpress-develop` to `cbuntingde/axiompress`. Current origin: `https://github.com/cbuntingde/axiompress.git`; default branch remains `trunk`. The local checkout directory and Compose project identity remain `wordpress-develop`.
+
+Verified with GitHub CLI repository metadata, `git remote -v`, and `git ls-remote --heads origin trunk`. This is a repository-location/branding change, not a new upstream baseline, history rewrite or data migration. The original baseline and originally configured origin above remain unchanged. The original root README is preserved as `README-WORDPRESS.md`.

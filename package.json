@@ -1,10 +1,10 @@
 {
 	"name": "axiompress",
 	"version": "0.1.0-dev",
-	"description": "WordPress is open source software you can use to create a beautiful website, blog, or app.",
+	"description": "AxiomPress is an independent, clean-break CMS fork of WordPress.",
 	"repository": {
-		"type": "svn",
-		"url": "https://develop.svn.wordpress.org/trunk"
+		"type": "git",
+		"url": "https://github.com/cbuntingde/axiompress.git"
 	},
 	"gutenberg": {
 		"sha": "cc75a79186fd23e72eb015d594e82f40c6209eb5",

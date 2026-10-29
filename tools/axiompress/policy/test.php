@@ -164,6 +164,10 @@ try {
     $store->register($differentBinding);
     $reject(fn() => $store->change('plugin-a', 6, true, array('content.read'), $differentBinding->image));
     $check((int) $reader->describe('plugin-a', 'site:1')['generation'] === 6);
+    $check($store->change('plugin-a', 6, true, array('content.read'), $image) === 7);
+    $check($reader->resolve('plugin-a', 'site:1')['image'] === $image);
+    $check($reader->generation('plugin-a', 'site:1', $otherBinding->image) === null);
+    $reject(fn() => $registry->context('test', $handle));
     echo "PASS: {$checks} package/policy checks\n";
 } finally {
     unset($store, $writer, $reader, $reopened, $registry, $unknown);

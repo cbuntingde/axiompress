@@ -38,7 +38,7 @@ foreach (
     $start = hrtime(true);
     try {
         $result = $supervisor->run('test-plugin', 'site-a', 'editor', 'post:1');
-        $expectedCount = $mode === 'probes' ? 9 : 5;
+        $expectedCount = $mode === 'probes' ? 14 : 5;
         if (!in_array($mode, array('reading', 'probes'), true) || $result->component->word_count !== $expectedCount) {
             throw new LogicException('Unexpected successful worker result.');
         }

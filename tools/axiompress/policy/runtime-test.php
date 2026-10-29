@@ -48,14 +48,23 @@ try {
     }
 }
 $generation = $writer->change('runtime-policy', 3, true, array('content.read'), $image);
-$read = static fn(string $site, string $id): stdClass => (object) array(
-    'content_id' => $id, 'revision' => 'v2', 'title' => 'Fixture', 'text' => 'One two three four five.',
-);
+$fixtureText = 'One two three four five.';
+$read = static function (string $site, string $id) use (&$fixtureText): stdClass {
+    return (object) array('content_id' => $id, 'revision' => 'v2', 'title' => 'Fixture', 'text' => $fixtureText);
+};
 $fresh = Supervisor::fromPolicy($reader, 'runtime-policy', 'site:1', $canRead, $read, '/tmp/admission');
 $result = $fresh->run('runtime-policy', 'site:1', 'editor', 'post:1');
 if ($generation !== 4 || $result->component->word_count !== 5 || Supervisor::remainingWorkers() !== array()) {
     throw new RuntimeException('New grant generation or cleanup failed.');
 }
+$textCases = array();
+foreach (array('' => array(0, 0), 'κόσμε café 你好' => array(3, 1)) as $fixtureText => [$words, $seconds]) {
+    $component = $fresh->run('runtime-policy', 'site:1', 'editor', 'post:1')->component;
+    if ($component->word_count !== $words || $component->reading_seconds !== $seconds) {
+        throw new RuntimeException('Empty/Unicode useful package behavior mismatch.');
+    }
+    $textCases[] = $component;
+}
 echo json_encode(array('outcome' => 'passed', 'disabled_mid_read' => true,
     'disabled_admission_denied' => true, 'reenabled_generation' => $generation,
-    'component' => $result->component, 'image' => $image), JSON_THROW_ON_ERROR) . "\n";
+    'component' => $result->component, 'text_cases' => $textCases, 'image' => $image), JSON_THROW_ON_ERROR) . "\n";

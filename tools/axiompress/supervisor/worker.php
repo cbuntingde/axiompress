@@ -53,11 +53,28 @@ if ($mode === 'probes') {
     $count += !file_exists('/var/run/docker.sock') ? 1 : 0;
     $count += !file_exists('/var/www/wp-config.php') ? 1 : 0;
     $count += getenv('AXIOMPRESS_CORE_SECRET') === false ? 1 : 0;
-    $socket = @fsockopen('1.1.1.1', 53, $errno, $error, 0.2);
-    $count += $socket === false ? 1 : 0;
-    if (is_resource($socket)) {
-        fclose($socket);
+    foreach (array('127.0.0.1', '169.254.169.254', '10.0.0.1', '1.1.1.1', '[::1]') as $host) {
+        $socket = @fsockopen($host, 80, $errno, $error, 0.1);
+        $count += $socket === false ? 1 : 0;
+        if (is_resource($socket)) {
+            fclose($socket);
+        }
     }
+    $file = fopen('/tmp/quota-probe', 'wb');
+    $bytes = 0;
+    $limited = false;
+    $chunk = str_repeat('x', 65536);
+    while ($bytes <= 67108864) {
+        $written = @fwrite($file, $chunk);
+        if ($written === false || $written === 0) {
+            $limited = true;
+            break;
+        }
+        $bytes += $written;
+    }
+    fclose($file);
+    $count += $limited && $bytes >= 62914560 && $bytes <= 67108864 ? 1 : 0;
+    unlink('/tmp/quota-probe');
 } else {
     $request = (object) array(
         'api' => Protocol::API, 'kind' => 'request', 'id' => 'read1', 'operation' => 'content.read',

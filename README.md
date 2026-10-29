@@ -12,11 +12,12 @@ The current checkout includes:
 
 -   A native PHP 8.5 read-only content API that loads no WordPress plugins, themes, hooks or bootstrap.
 -   A bounded extension protocol, scoped content broker and restricted Linux worker supervisor.
+-   A Linux peer-authenticated core/broker service with gVisor integration, bounded admission and crash recovery.
 -   Operator-managed package/image approval, persistent installation grants, revocation, shared admission and recovery checks.
 -   Core protections that prevent official WordPress packages from replacing AxiomPress.
 -   Focused tests and repeatable database, runtime, editor and performance experiments.
 
-PostgreSQL 18 is selected for the future domain model. The native read prototype currently uses a SELECT-only public projection of the inherited MySQL schema. gVisor systrap is the next isolation integration target; current runc tests and nested gVisor experiments do not establish production hostile-code containment. Gutenberg block grammar and reviewed UI packages will be reused selectively.
+PostgreSQL 18 is selected for the future domain model. The native read prototype currently uses a SELECT-only public projection of the inherited MySQL schema. gVisor systrap is integrated with the extension service and exercised on a dedicated WSL2 Linux engine. Runc remains development-only; production deployment still requires independent host and security acceptance. Gutenberg block grammar and reviewed UI packages will be reused selectively.
 
 Native authentication, content writes, full administration/editor integration, data migration and signed release infrastructure remain later-phase work. Legacy executable plugin/theme compatibility is outside the target architecture.
 
@@ -28,6 +29,7 @@ Native authentication, content writes, full administration/editor integration, d
 -   [Contributing to AxiomPress](CONTRIBUTING.md) and [repository guidance](AGENTS.md)
 -   [Native core contract](src/axiompress/README.md)
 -   [Worker supervision and containment limits](tools/axiompress/supervisor/README.md)
+-   [Extension service, Linux host setup and verification](tools/axiompress/service/README.md)
 -   [Package and installation policy](tools/axiompress/policy/README.md)
 -   [Domain contract designs](tools/axiompress/contracts/README.md)
 

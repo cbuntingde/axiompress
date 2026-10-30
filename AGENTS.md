@@ -43,6 +43,15 @@ This direction does not authorize unrelated rewrites or removal of working funct
 - Do not force-add files under `docs/` or remove its ignore rule unless the user explicitly requests it.
 - Durable instructions needed by future contributors belong in tracked guidance such as this file. Do not make required repository behavior depend solely on ignored plans.
 
+## Public writing and commit messages
+
+- Use plain, professional language in READMEs, commit subjects/bodies, pull request descriptions, release notes and other published project material. Describe the change, its purpose, current behavior and relevant limitations in terms readers can understand.
+- Do not use development slang, internal planning labels or unexplained jargon as descriptions. Avoid wording such as "vertical slice", "spike", "dogfooding", "plumbing", "harness", "gate", "native pipeline", "proof" or "WIP". Describe the actual feature, test or unfinished work instead. Do not substitute internal phase numbers for an explanation of project status.
+- Preserve exact commands, paths, API identifiers, product names and technical terms needed for accuracy; explain their purpose plainly. This rule does not authorize renaming code or hiding incomplete functionality, security limitations or failed checks.
+- Do not link to, name or direct readers to Git-ignored documents in public project material or commit/PR messages. Do not mention their existence as supporting evidence. Verify documentation links with `git ls-files`; a file existing locally does not make it available to repository readers.
+- Put information needed by repository readers in tracked documentation, or explain it directly. Keep local planning and evidence private without advertising unavailable documents. Repository instructions may specify where local files belong and how their ignore rules are maintained.
+- Use descriptive plain-English commit subjects rather than unnecessary workflow labels or shorthand. Do not rewrite published commit history solely to apply this writing rule unless the user explicitly requests it.
+
 ## Verification and scope
 
 - Independent PHP under `src/axiompress/`, `tools/axiompress/`, and `tests/axiompress/` targets 64-bit PHP 8.5 and PSR-12 with LF source bytes. Run `composer lint:axiompress`, `composer test:protocol`, and `composer test:broker`; retain WordPress coding standards for inherited modules. The focused AxiomPress workflow checks the independent paths separately; excluding them from the legacy ruleset is not permission to skip lint.

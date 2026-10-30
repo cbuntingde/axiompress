@@ -72,6 +72,11 @@ class Controller:
     def process(self, maximum=32):
         if type(maximum) is not int or not 1 <= maximum <= 32:
             raise RuntimeError('Bounded media batch required')
+        state = Path(self.config['state_directory'])
+        if state.is_symlink() or not state.is_dir() or state.stat().st_uid != 0 or state.stat().st_mode & 0o077:
+            raise RuntimeError('Private operator media state required')
+        if any(path.name != 'owner.lock' for path in state.iterdir()):
+            raise RuntimeError('Resolve retained media intent before claiming another job')
         summary = {'ready': 0, 'invalid': 0, 'retry': 0}
         for _ in range(maximum):
             task = self.control('claim')

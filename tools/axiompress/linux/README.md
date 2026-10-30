@@ -77,6 +77,12 @@ Installation approvals remain operator-controlled through the separate policy da
 
 Updates require a separately reviewed release and an explicit deployment procedure. The installer deliberately refuses replacement; do not bypass that refusal by overwriting a running release or deleting recovery state. Official WordPress packages must never be installed over AxiomPress.
 
+## Schedule image processing
+
+For an already provisioned dedicated direct media runtime, install an inactive service and timer with `media-schedule.py --instance axiompress-media --config /etc/axiompress/media.json`. The media configuration follows the runtime guide and must use `backend: "direct"`. Installation validates the controller and both unit definitions, refuses existing units and leaves the timer disabled. An operator can start scheduling with `systemctl enable --now axiompress-media.timer` after validating the runtime and database connection.
+
+The timer runs a maximum of four jobs per batch, 15 seconds after the previous batch finishes. `--interval` accepts 5–3600 seconds. A service instance does not overlap itself. Unresolved worker intent prevents another database claim and requires operator recovery. This scheduler requires separately provisioned persistent runtime/cgroup state; it does not yet automate media-runtime delegation or establish restart acceptance on a production host.
+
 ## Local installation tests
 
 From the source checkout on the dedicated Linux test host:

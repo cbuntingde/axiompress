@@ -50,6 +50,7 @@
   "tools/axiompress/broker/core-bridge.php",
   "tools/axiompress/linux/README.md",
   "tools/axiompress/linux/install.py",
+  "tools/axiompress/linux/media-schedule.py",
   "tools/axiompress/linux/package-files.json",
   "tools/axiompress/linux/package.py",
   "tools/axiompress/linux/service.py",

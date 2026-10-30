@@ -12,7 +12,7 @@ final class PostgresConnection
 {
     public static function fromEnvironment(string $prefix): array
     {
-        if (!in_array($prefix, array('AXIOM_AUTH_', 'AXIOM_PUBLIC_'), true)) {
+        if (!in_array($prefix, array('AXIOM_AUTH_', 'AXIOM_PUBLIC_', 'AXIOM_JOBS_'), true)) {
             throw new RuntimeException('Invalid PostgreSQL configuration namespace.');
         }
         $get = static function (string $name) use ($prefix): string {

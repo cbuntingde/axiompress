@@ -1,20 +1,27 @@
 """Actual HTTPS/frontend-to-core proof; backend is loopback-only in this disposable fixture."""
 
 import http.client
+import base64
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import secrets
 import ssl
 import socket
+import subprocess
+import shutil
+import runpy
 import threading
 import time
 import urllib.error
 import urllib.request
 
 
-def verify(root, directory, network, docker, containers, name, sql, plugin=None):
+def verify(root, directory, network, docker, containers, name, sql, plugin=None, media=None, browser=False,
+           editor_proof=False):
     backend_port = None
+    editor_assets = (runpy.run_path(str(root / 'tools/axiompress/experiments/editor-proof.py'))['Assets'](root)
+                     if editor_proof else None)
 
     class Proxy(BaseHTTPRequestHandler):
         def log_message(self, _format, *_arguments):
@@ -22,8 +29,25 @@ def verify(root, directory, network, docker, containers, name, sql, plugin=None)
             return
 
         def forward(self):
+            asset = editor_assets.read(self.path) if editor_assets is not None else None
+            if asset is not None:
+                if self.command not in ('GET', 'HEAD'):
+                    self.send_error(405)
+                    return
+                data, mime = asset
+                self.send_response(200)
+                self.send_header('Content-Type', mime)
+                self.send_header('Content-Length', str(len(data)))
+                self.send_header('Cache-Control', 'no-store')
+                self.send_header('X-Content-Type-Options', 'nosniff')
+                self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+                                 "connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'")
+                self.end_headers()
+                if self.command != 'HEAD':
+                    self.wfile.write(data)
+                return
             length = int(self.headers.get('Content-Length', '0'))
-            if length > 819200:
+            if length > 3145728:
                 self.send_error(413)
                 return
             body = self.rfile.read(length)
@@ -33,7 +57,9 @@ def verify(root, directory, network, docker, containers, name, sql, plugin=None)
             try:
                 connection.request(self.command, self.path, body=body, headers=headers)
                 result = connection.getresponse()
-                data = result.read(20000)
+                data = result.read(4194305)
+                if len(data) > 4194304:
+                    raise RuntimeError('Disposable HTTP proxy response limit')
                 self.send_response(result.status)
                 for key, value in result.getheaders():
                     if key.lower() not in ('connection', 'transfer-encoding', 'content-length', 'server', 'date'):
@@ -122,8 +148,11 @@ def verify(root, directory, network, docker, containers, name, sql, plugin=None)
             except urllib.error.HTTPError as error:
                 response = error
             with response:
-                data = response.read(900000)
-                return response.status, dict(response.headers), json.loads(data) if data else None
+                data = response.read(3145729)
+                content_type = response.headers.get_content_type()
+                payload = (data if content_type == 'image/png' else json.loads(data) if content_type == 'application/json'
+                           and data else data.decode('utf-8') if data else None)
+                return response.status, dict(response.headers), payload
 
         status, headers, body = request('POST', '/v1/session/login',
             {'username': 'alice', 'password': (directory / 'user-password').read_text()})
@@ -168,8 +197,8 @@ def verify(root, directory, network, docker, containers, name, sql, plugin=None)
         updated = next(result[2] for result in outcomes if result[0] == 200)
         expected = {'expected_revision': updated['revision'], 'expected_version': updated['version']}
         sql("UPDATE axiom_identity.memberships SET role='author' WHERE site_id=1 AND user_id=1")
-        check(request('POST', path + '/publish', expected, cookie=cookie, csrf=csrf,
-                      key=secrets.token_hex(32))[0] == 403, 'Actual HTTP role downgrade forbids publication')
+        downgraded = request('POST', path + '/publish', expected, cookie=cookie, csrf=csrf, key=secrets.token_hex(32))
+        check(downgraded[0] == 403, 'Actual HTTP role downgrade forbids publication: status=' + str(downgraded[0]))
         sql("UPDATE axiom_identity.memberships SET role='editor' WHERE site_id=1 AND user_id=1")
         retry_key = secrets.token_hex(32)
         sql("CREATE FUNCTION axiom_content.fail_http_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ "
@@ -254,6 +283,72 @@ def verify(root, directory, network, docker, containers, name, sql, plugin=None)
                       cookie=cookie, csrf=csrf, key=secrets.token_hex(32))[0] == 200, 'Actual HTTPS unpublish')
         check(request('GET', public_path)[0] == 404 and request('HEAD', public_path)[0] == 404,
               'Actual withdrawal denies GET and HEAD on fresh reads')
+        if media is not None:
+            for mime in ('image/png', 'image/jpeg', 'image/webp'):
+                source = media.source(mime)
+                status, _, upload = request('POST', '/v1/media', {'name': 'browser-image', 'mime': mime, 'data': source},
+                                            cookie=cookie, csrf=csrf, key=secrets.token_hex(32))
+                check(status == 202, 'Actual HTTP image enters quarantine')
+                image_path = '/v1/media/' + upload['id']
+                public_image = '/v1/sites/1/media/' + upload['id']
+                check(request('GET', public_image)[0] == 404 and request('GET', image_path + '/file', cookie=cookie)[0] == 404,
+                      'Original upload is inaccessible before isolated regeneration')
+                check(media.process()['ready'] == 1, 'Actual runsc GD transformation commits')
+                status, image_headers, png = request('GET', image_path + '/file', cookie=cookie)
+                check(status == 200 and png.startswith(b'\x89PNG\r\n\x1a\n')
+                      and image_headers['X-Content-Type-Options'] == 'nosniff', 'Only regenerated private PNG is served')
+                info = request('GET', image_path, cookie=cookie)[2]
+                check(info['width'] == 4 and info['height'] == 4 and not info['public'], 'Validated dimensions remain private')
+                status, _, visible = request('POST', image_path + '/publish', {'expected_version': info['version']},
+                                             cookie=cookie, csrf=csrf, key=secrets.token_hex(32))
+                check(status == 200 and request('GET', public_image)[0] == 200, 'Explicit media publication works')
+                check(request('GET', '/v1/sites/2/media/' + upload['id'])[0] == 404, 'Public media cross-site denial')
+                check(request('POST', image_path + '/withdraw', {'expected_version': visible['version']},
+                              cookie=cookie, csrf=csrf, key=secrets.token_hex(32))[0] == 200
+                      and request('GET', public_image)[0] == 404, 'Media withdrawal revokes next read')
+            malformed = base64.b64encode(b'\x89PNG\r\n\x1a\ninvalid compressed image').decode()
+            status, _, upload = request('POST', '/v1/media', {'name': 'malformed', 'mime': 'image/png', 'data': malformed},
+                                        cookie=cookie, csrf=csrf, key=secrets.token_hex(32))
+            check(status == 202 and media.process()['invalid'] == 1, 'Decoder rejects malformed image inside sandbox')
+            check(request('GET', '/v1/media/' + upload['id'], cookie=cookie)[2]['status'] == 'failed',
+                  'Invalid image failure is durable and never public')
+        browser_report = None
+        editor_report = None
+        if editor_proof:
+            node = shutil.which('node.exe')
+            script = subprocess.run(['wslpath', '-w', str(root / 'tests/axiompress/gutenberg-browser-test.cjs')],
+                                    capture_output=True, text=True, check=True, timeout=10).stdout.strip()
+            result = subprocess.run([node, script], input=json.dumps({'origin': origin, 'username': 'alice',
+                'password': (directory / 'user-password').read_text()}), capture_output=True, text=True, timeout=180)
+            if result.returncode:
+                raise RuntimeError('Gutenberg acceptance failed: ' + result.stderr[-3000:])
+            editor_report = json.loads(result.stdout)
+            check(editor_report['outcome'] == 'passed', 'Actual Gutenberg/native API acceptance')
+            editor_report['assets'] = editor_assets.manifest
+        if browser:
+            if media is not None:
+                for title, width, height in (('Landscape acceptance', 1200, 800), ('Portrait acceptance', 600, 1200)):
+                    status, _, upload = request('POST', '/v1/media', {'name': title, 'mime': 'image/png',
+                        'data': media.source('image/png', width, height)}, cookie=cookie, csrf=csrf, key=secrets.token_hex(32))
+                    check(status == 202, 'Browser media fixture upload: HTTP ' + str(status))
+                    processed = media.process()
+                    check(processed['ready'] == 1, 'Actual prepared browser media fixture: ' + json.dumps(processed))
+            node = shutil.which('node.exe')
+            if node is None:
+                raise RuntimeError('Windows Node.js and installed Chrome required for --browser')
+            script = subprocess.run(['wslpath', '-w', str(root / 'tests/axiompress/admin-browser-test.cjs')],
+                                    capture_output=True, text=True, check=True, timeout=10).stdout.strip()
+            sql("UPDATE axiom_identity.memberships SET role='owner' WHERE site_id=1 AND user_id=1")
+            try:
+                result = subprocess.run([node, script], input=json.dumps({'origin': origin, 'username': 'alice',
+                    'password': (directory / 'user-password').read_text(), 'populated_media': media is not None}),
+                    capture_output=True, text=True, timeout=180)
+                if result.returncode:
+                    raise RuntimeError('Browser acceptance failed: ' + result.stderr[-2000:])
+                browser_report = json.loads(result.stdout)
+                check(browser_report['outcome'] == 'passed', 'Actual Chrome workspace acceptance')
+            finally:
+                sql("UPDATE axiom_identity.memberships SET role='editor' WHERE site_id=1 AND user_id=1")
         check(request('DELETE', '/v1/session', cookie=cookie, csrf=body['csrf_token'])[0] == 200, 'Actual HTTPS logout')
         check(request('GET', '/v1/session', cookie=cookie)[0] == 401, 'Actual HTTP replay denied')
         state = json.loads(docker('inspect', container))[0]
@@ -277,6 +372,10 @@ def verify(root, directory, network, docker, containers, name, sql, plugin=None)
                 'isolated_plugin': plugin is not None, 'worker_runtime': 'runsc' if plugin is not None else None,
                 'supervisor_image': plugin.image if plugin is not None else None,
                 'approved_plugin_image': plugin.approved if plugin is not None else None,
+                'isolated_media': media is not None,
+                'media_processor_image': media.processor_image if media is not None else None,
+                'browser': browser_report,
+                'editor_proof': editor_report,
                 'production_acceptance': False}
     finally:
         if thread is not None:

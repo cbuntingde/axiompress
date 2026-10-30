@@ -9,6 +9,9 @@
 !tests/axiompress/auth-test.php
 !tests/axiompress/content-test.php
 !tests/axiompress/published-content-test.php
+!tests/axiompress/jobs-test.php
+!tests/axiompress/media-test.php
+!tests/axiompress/platform-test.php
 !src
 !src/axiompress
 !src/axiompress/**

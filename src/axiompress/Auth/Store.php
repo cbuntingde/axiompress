@@ -58,6 +58,18 @@ final readonly class Store
 
     public function content(string $token, string $operation, string $id, array $input, string $key): array
     {
+        if ($operation === 'schedule' || $operation === 'cancel_schedule') {
+            $parameters = array(hash('sha256', $token), $this->site, $id);
+            $function = 'axiom_jobs.cancel(?,?,?)';
+            if ($operation === 'schedule') {
+                $function = 'axiom_jobs.schedule(?,?,?,?,?,?,?)';
+                $parameters = array_merge($parameters, array(
+                    $input['expected_revision'], $input['expected_version'], $input['due_at'], $key,
+                ));
+            }
+            $row = $this->query('SELECT axiom_auth.site() AS site_id,' . $function . ' AS result', $parameters);
+            return json_decode($row['result'], true, 8, JSON_THROW_ON_ERROR);
+        }
         $row = $this->query('SELECT axiom_auth.site() AS site_id,
             axiom_content.command(?,?,?,?,?,?,?,?,?,?) AS result', array(
             hash('sha256', $token), $this->site, $operation, $id,
@@ -80,5 +92,23 @@ final readonly class Store
         } finally {
             $statement->closeCursor();
         }
+    }
+
+    public function media(string $token, string $operation, string $id, array $input, string $key): array
+    {
+        $sql = 'SELECT axiom_auth.site() AS site_id,axiom_media.command(?,?,?,?,?::jsonb,?) AS result';
+        $row = $this->query($sql, array(
+            hash('sha256', $token), $this->site, $operation, $id,
+            json_encode($input === array() ? new \stdClass() : $input, JSON_THROW_ON_ERROR), $key,
+        ));
+        return json_decode($row['result'], true, 8, JSON_THROW_ON_ERROR);
+    }
+
+    public function platform(string $token, string $operation, array $input, string $key): array
+    {
+        $sql = 'SELECT axiom_auth.site() AS site_id,axiom_platform.command(?,?,?,?::jsonb,?) AS result';
+        $row = $this->query($sql, array(hash('sha256', $token), $this->site, $operation,
+            json_encode($input === array() ? new \stdClass() : $input, JSON_THROW_ON_ERROR), $key));
+        return json_decode($row['result'], true, 8, JSON_THROW_ON_ERROR);
     }
 }

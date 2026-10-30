@@ -12,5 +12,8 @@ COPY tests/axiompress/database-test.php /checks/database-test.php
 COPY tests/axiompress/auth-test.php /checks/auth-test.php
 COPY tests/axiompress/content-test.php /checks/content-test.php
 COPY tests/axiompress/published-content-test.php /checks/published-content-test.php
+COPY tests/axiompress/jobs-test.php /checks/jobs-test.php
+COPY tests/axiompress/media-test.php /checks/media-test.php
+COPY tests/axiompress/platform-test.php /checks/platform-test.php
 COPY src/axiompress /core
 ENTRYPOINT ["php", "/checks/database-test.php"]

@@ -1,0 +1,77 @@
+body {
+	margin: 0;
+	background: #f6f7f7;
+	color: #202124;
+	font:
+		15px/1.6 system-ui,
+		sans-serif;
+}
+a {
+	color: #2546cb;
+	text-underline-offset: 3px;
+}
+main {
+	max-width: 980px;
+	margin: 32px auto;
+	padding: 24px;
+}
+h1 {
+	font-size: 28px;
+	line-height: 1.2;
+}
+label {
+	display: block;
+	font-weight: 600;
+}
+input {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 12px;
+	font: inherit;
+	border: 1px solid #727780;
+}
+button {
+	font: inherit;
+	padding: 8px 12px;
+	background: #fff;
+	border: 1px solid #727780;
+	border-radius: 4px;
+	cursor: pointer;
+}
+button:disabled {
+	color: #565b66;
+	background: #e9ebef;
+	cursor: not-allowed;
+}
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin-top: 18px;
+}
+#editor {
+	background: white;
+	min-height: 320px;
+	padding: 32px;
+}
+#editor .block-editor-block-list__block {
+	max-width: 760px;
+	margin: 24px auto;
+}
+:focus-visible {
+	outline: 3px solid #3858e9;
+	outline-offset: 3px;
+}
+::selection {
+	background: #dce3ff;
+	color: #15285a;
+}
+@media (max-width: 540px) {
+	main {
+		margin: 0;
+		padding: 16px;
+	}
+	#editor {
+		padding: 16px;
+	}
+}

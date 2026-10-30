@@ -19,7 +19,8 @@ $check = static function (bool $value, string $label) use (&$checks): void {
     $checks++;
 };
 $admin = Connection::fromEnvironment();
-$check((new MigrationRunner($admin))->migrate('/app/migrations') === array(1, 2, 3), 'All migrations apply');
+$check((new MigrationRunner($admin))->migrate('/app/migrations')
+    === range(1, count(glob('/app/migrations/*.sql'))), 'All migrations apply');
 $admin->exec('SET ROLE axiom_owner');
 $admin->exec("INSERT INTO axiom_identity.sites(id,slug,name) OVERRIDING SYSTEM VALUE
     VALUES(1,'one','One'),(2,'two','Two');

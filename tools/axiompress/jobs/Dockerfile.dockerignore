@@ -1,0 +1,10 @@
+**
+!src
+!src/axiompress
+!src/axiompress/**
+!tools
+!tools/axiompress
+!tools/axiompress/jobs
+!tools/axiompress/jobs/run.php
+!tools/axiompress/media
+!tools/axiompress/media/control.php

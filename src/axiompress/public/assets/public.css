@@ -1,0 +1,156 @@
+:root {
+	color-scheme: light;
+	--page: #fff;
+	--ink: #202124;
+	--muted: #51565e;
+	--line: #dddfe2;
+	--link: #2546cb;
+}
+.theme-ink {
+	color-scheme: dark;
+	--page: #191b20;
+	--ink: #f4f5f6;
+	--muted: #b7bdc7;
+	--line: #41464f;
+	--link: #a9bbff;
+}
+* {
+	box-sizing: border-box;
+}
+body {
+	margin: 0;
+	background: var(--page);
+	color: var(--ink);
+	font-family: system-ui, sans-serif;
+	line-height: 1.7;
+}
+::selection {
+	background: #3858e9;
+	color: white;
+}
+a {
+	color: var(--link);
+	text-underline-offset: 0.18em;
+}
+a:hover {
+	text-decoration-thickness: 2px;
+}
+:focus-visible {
+	outline: 3px solid var(--link);
+	outline-offset: 4px;
+}
+.site-header,
+main,
+footer {
+	width: min(100% - 48px, 750px);
+	margin-inline: auto;
+}
+.site-header {
+	padding: 36px 0;
+	border-bottom: 1px solid var(--line);
+}
+.site-header > a {
+	font-size: 20px;
+	font-weight: 650;
+	color: var(--ink);
+	text-decoration: none;
+}
+.site-header p {
+	color: var(--muted);
+	margin: 4px 0 0;
+}
+main {
+	min-height: 50vh;
+	padding-block: 56px 80px;
+}
+h1 {
+	font-size: clamp(2.2rem, 6vw, 3.3rem);
+	line-height: 1.12;
+	letter-spacing: -0.03em;
+	text-wrap: balance;
+	margin: 0 0 40px;
+}
+h2,
+h3,
+h4 {
+	line-height: 1.3;
+	margin: 2em 0 0.6em;
+	text-wrap: balance;
+}
+.article-body {
+	font-family: Georgia, serif;
+	font-size: 20px;
+}
+.article-body p {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	margin: 0 0 1.3em;
+}
+.article-body h2,
+.article-body h3,
+.article-body h4 {
+	font-family: system-ui, sans-serif;
+	white-space: pre-wrap;
+}
+figure {
+	margin: 36px 0;
+}
+img {
+	max-width: 100%;
+	height: auto;
+	display: block;
+}
+.article-terms {
+	list-style: none;
+	padding: 26px 0 0;
+	border-top: 1px solid var(--line);
+	display: flex;
+	gap: 16px;
+	flex-wrap: wrap;
+	font-size: 14px;
+	color: var(--muted);
+}
+.article-entry {
+	padding: 28px 0;
+	border-bottom: 1px solid var(--line);
+}
+.article-entry h2 {
+	margin: 0 0 8px;
+	font-size: 25px;
+}
+.article-entry p,
+footer {
+	color: var(--muted);
+	font-size: 14px;
+}
+.older {
+	display: inline-block;
+	margin-top: 32px;
+}
+.preview-banner {
+	padding: 16px;
+	border: 1px solid var(--line);
+	margin: 0 0 32px;
+}
+footer {
+	padding: 30px 0;
+	border-top: 1px solid var(--line);
+}
+.skip-link {
+	position: absolute;
+	top: -80px;
+	left: 24px;
+	padding: 12px;
+	background: var(--page);
+}
+.skip-link:focus {
+	top: 8px;
+}
+@media (max-width: 540px) {
+	main {
+		padding-top: 34px;
+	}
+	.article-body {
+		font-size: 18px;
+	}
+}

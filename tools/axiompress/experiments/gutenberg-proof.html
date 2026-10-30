@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width,initial-scale=1" />
+		<title>AxiomPress — Gutenberg integration proof</title>
+		<!-- styles -->
+	</head>
+	<body>
+		<main>
+			<h1>Gutenberg integration proof</h1>
+			<p>
+				Development experiment · native persistence · paragraph and
+				heading blocks
+			</p>
+			<label for="title">Article title</label
+			><input id="title" maxlength="4096" />
+			<div class="actions">
+				<button id="paragraph" type="button">Add paragraph</button
+				><button id="heading" type="button">Add heading</button>
+				<button id="save" type="button">Save draft</button
+				><button id="publish" type="button" disabled>
+					Publish saved revision
+				</button>
+				<button id="reload" type="button">Reload saved draft</button
+				><button id="renew" type="button">Refresh session</button>
+			</div>
+			<p id="status" role="status" aria-live="polite">Loading session…</p>
+			<p>
+				<a href="/admin" target="_blank" rel="noopener"
+					>Open sign-in in another tab</a
+				>
+			</p>
+			<section
+				id="editor"
+				aria-label="Gutenberg writing canvas"
+			></section>
+		</main>
+		<!-- scripts -->
+	</body>
+</html>

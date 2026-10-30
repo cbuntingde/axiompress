@@ -28,7 +28,72 @@ try {
         };
     }, $extension);
     $uri = $_SERVER['REQUEST_URI'] ?? '';
-    if (str_starts_with($uri, '/v1/articles')) {
+    if (in_array($uri, array('/healthz', '/readyz'), true)) {
+        if (!in_array($method, array('GET', 'HEAD'), true)) {
+            $response = new Response(405, array('error' => 'method_not_allowed'));
+        } else {
+            if ($uri === '/readyz') {
+                if (getenv('AXIOM_PUBLIC_BACKEND') !== 'postgres') {
+                    throw new RuntimeException('Native readiness requires PostgreSQL.');
+                }
+                $auth = AxiomPress\Core\Auth\Store::fromEnvironment();
+                if (AxiomPress\Core\Platform\PublicRepository::fromEnvironment()->settings($auth->site) === null) {
+                    throw new RuntimeException('Native readiness scope differs.');
+                }
+            }
+            $response = new Response(200, array('status' => $uri === '/readyz' ? 'ready' : 'alive'));
+        }
+    } elseif (AxiomPress\Core\AssetResponse::exists($uri)) {
+        $response = in_array($method, array('GET', 'HEAD'), true)
+            ? new AxiomPress\Core\AssetResponse($uri)
+            : new Response(405, array('error' => 'method_not_allowed'));
+    } elseif (str_starts_with($uri, '/site/') || str_starts_with($uri, '/preview/')) {
+        $response = (new AxiomPress\Core\Themes\Kernel($kernel))->handle(
+            $method,
+            $uri,
+            $_SERVER['HTTP_COOKIE'] ?? '',
+            ($_SERVER['HTTPS'] ?? '') === 'on' || getenv('AXIOM_AUTH_TLS_TERMINATED') === '1'
+        );
+    } elseif (preg_match('~\A/v1/sites/([1-9][0-9]{0,9})/media/([a-f0-9]{32})\z~D', $uri, $mediaPath)) {
+        if (!in_array($method, array('GET', 'HEAD'), true)) {
+            $response = new Response(405, array('error' => 'method_not_allowed'));
+        } elseif (getenv('AXIOM_PUBLIC_BACKEND') !== 'postgres') {
+            $response = new Response(404, array('error' => 'not_found'));
+        } else {
+            $response = AxiomPress\Core\Media\PublicRepository::fromEnvironment()
+                ->read((int) $mediaPath[1], $mediaPath[2]);
+        }
+    } elseif (str_starts_with($uri, '/v1/media')) {
+        $media = new AxiomPress\Core\Media\Kernel(static fn(): AxiomPress\Core\Auth\Store =>
+            AxiomPress\Core\Auth\Store::fromEnvironment(), (string) getenv('AXIOM_AUTH_ORIGIN'));
+        $body = file_get_contents('php://input', false, null, 0, 3145729);
+        $response = $media->handle(
+            $method,
+            $uri,
+            $body === false ? '' : $body,
+            $_SERVER['HTTP_COOKIE'] ?? '',
+            $_SERVER['HTTP_ORIGIN'] ?? '',
+            $_SERVER['CONTENT_TYPE'] ?? '',
+            $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '',
+            $_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? '',
+            ($_SERVER['HTTPS'] ?? '') === 'on' || getenv('AXIOM_AUTH_TLS_TERMINATED') === '1'
+        );
+    } elseif (str_starts_with($uri, '/v1/platform')) {
+        $platform = new AxiomPress\Core\Platform\Kernel(static fn(): AxiomPress\Core\Auth\Store =>
+            AxiomPress\Core\Auth\Store::fromEnvironment(), (string) getenv('AXIOM_AUTH_ORIGIN'));
+        $body = file_get_contents('php://input', false, null, 0, 65537);
+        $response = $platform->handle(
+            $method,
+            $uri,
+            $body === false ? '' : $body,
+            $_SERVER['HTTP_COOKIE'] ?? '',
+            $_SERVER['HTTP_ORIGIN'] ?? '',
+            $_SERVER['CONTENT_TYPE'] ?? '',
+            $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '',
+            $_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? '',
+            ($_SERVER['HTTPS'] ?? '') === 'on' || getenv('AXIOM_AUTH_TLS_TERMINATED') === '1'
+        );
+    } elseif (str_starts_with($uri, '/v1/articles')) {
         $content = new AxiomPress\Core\Content\Kernel(static fn(): AxiomPress\Core\Auth\Store =>
             AxiomPress\Core\Auth\Store::fromEnvironment(), (string) getenv('AXIOM_AUTH_ORIGIN'));
         $body = file_get_contents('php://input', false, null, 0, 819201);

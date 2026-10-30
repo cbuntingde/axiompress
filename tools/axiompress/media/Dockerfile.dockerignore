@@ -1,0 +1,5 @@
+**
+!tools
+!tools/axiompress
+!tools/axiompress/media
+!tools/axiompress/media/processor.php

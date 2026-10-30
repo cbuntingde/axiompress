@@ -21,6 +21,9 @@ report = None
 operator_checks = []
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--isolated-plugin', action='store_true', help='Require native gVisor for Phase 3 acceptance')
+parser.add_argument('--isolated-media', action='store_true', help='Require native gVisor for media decoder acceptance')
+parser.add_argument('--browser', action='store_true', help='Run installed Windows Chrome against disposable HTTPS admin')
+parser.add_argument('--editor-proof', action='store_true', help='Run pinned Gutenberg/native API proof in Windows Chrome')
 options = parser.parse_args()
 
 
@@ -29,7 +32,7 @@ def docker(*args, data=None, timeout=30):
     if result.returncode:
         # SQL/bootstrap data and credentials are deliberately absent from errors.
         detail = result.stderr
-        for label in ('root', 'deployer', 'reader-a', 'reader-b', 'auth-a', 'auth-b', 'user-password'):
+        for label in ('root', 'deployer', 'reader-a', 'reader-b', 'auth-a', 'auth-b', 'job-a', 'job-b', 'user-password'):
             secret = directory / label
             if secret.is_file():
                 detail = detail.replace(secret.read_text(), '[redacted]')
@@ -51,7 +54,7 @@ if os.name != 'posix' or os.getuid() != 0:
 with tempfile.TemporaryDirectory(prefix='axiompress-schema-', dir='/tmp') as temporary:
     directory = Path(temporary)
     try:
-        for label in ('root', 'deployer', 'reader-a', 'reader-b', 'auth-a', 'auth-b', 'user-password'):
+        for label in ('root', 'deployer', 'reader-a', 'reader-b', 'auth-a', 'auth-b', 'job-a', 'job-b', 'user-password'):
             path = directory / label
             path.write_text(secrets.token_hex(32))
             os.chown(path, 10001, 10001)
@@ -153,13 +156,18 @@ with tempfile.TemporaryDirectory(prefix='axiompress-schema-', dir='/tmp') as tem
             "ALTER DEFAULT PRIVILEGES FOR ROLE axiom_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;",
             database='axiom_auth_test')
         sql((ROOT / 'tools/axiompress/database/auth-bootstrap.sql').read_text(), database='axiom_auth_test')
+        sql((ROOT / 'tools/axiompress/database/platform-bootstrap.sql').read_text(), database='axiom_auth_test')
         for name, secret in (('auth_a', 'auth-a'), ('auth_b', 'auth-b')):
             sql("CREATE ROLE " + name + " LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD '"
                 + (directory / secret).read_text() + "'; GRANT axiom_authenticator TO " + name
                 + ' WITH INHERIT TRUE;', database='axiom_auth_test')
+        for name, secret in (('job_a', 'job-a'), ('job_b', 'job-b')):
+            sql("CREATE ROLE " + name + " LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD '"
+                + (directory / secret).read_text() + "'; GRANT axiom_job_runner TO " + name
+                + ' WITH INHERIT TRUE;', database='axiom_auth_test')
         auth_client = client.copy()
         auth_client[auth_client.index('AXIOM_PG_DATABASE=axiom_domain')] = 'AXIOM_PG_DATABASE=axiom_auth_test'
-        auth_mounts = [part for file in ('auth-a', 'auth-b', 'user-password') for part in (
+        auth_mounts = [part for file in ('auth-a', 'auth-b', 'job-a', 'job-b', 'user-password') for part in (
             '--mount', 'type=bind,source=' + str(directory / file) + ',target=/run/secrets/' + file + ',readonly')]
         authentication = json.loads(docker(*auth_client, *auth_mounts, '--entrypoint', 'php', verification_image,
                                           '-d', 'display_errors=stderr', '/checks/auth-test.php', timeout=120))
@@ -174,16 +182,36 @@ with tempfile.TemporaryDirectory(prefix='axiompress-schema-', dir='/tmp') as tem
                                             '-d', 'display_errors=stderr', '/checks/published-content-test.php', timeout=90))
         if report['public']['outcome'] != 'passed':
             raise RuntimeError('Public read checks did not pass')
+        report['jobs'] = json.loads(docker(*auth_client, *auth_mounts, '--entrypoint', 'php', verification_image,
+                                          '-d', 'display_errors=stderr', '/checks/jobs-test.php', timeout=90))
+        if report['jobs']['outcome'] != 'passed':
+            raise RuntimeError('Job checks did not pass')
+        report['media'] = json.loads(docker(*auth_client, *auth_mounts, '--entrypoint', 'php', verification_image,
+                                           '-d', 'display_errors=stderr', '/checks/media-test.php', timeout=90))
+        if report['media']['outcome'] != 'passed':
+            raise RuntimeError('Media checks did not pass')
+        report['platform'] = json.loads(docker(*auth_client, *auth_mounts, '--entrypoint', 'php', verification_image,
+                                              '-d', 'display_errors=stderr', '/checks/platform-test.php', timeout=90))
+        if report['platform']['outcome'] != 'passed':
+            raise RuntimeError('Platform checks did not pass')
         plugin = None
+        media = None
         try:
+            if options.isolated_media:
+                media = runpy.run_path(str(ROOT / 'tools/axiompress/media/proof.py'))['Fixture'](
+                    ROOT, directory, NETWORK, docker, NAME)
+                media.start()
             if options.isolated_plugin:
                 plugin = runpy.run_path(str(ROOT / 'tools/axiompress/service/phase3-fixture.py'))['Fixture'](
                     ROOT, docker, containers, NAME)
                 plugin.start()
             report['https'] = runpy.run_path(str(ROOT / 'tools/axiompress/database/auth-http.py'))['verify'](
                 ROOT, directory, NETWORK, docker, containers, NAME,
-                lambda statement: sql(statement, database='axiom_auth_test'), plugin)
+                lambda statement: sql(statement, database='axiom_auth_test'), plugin, media, options.browser,
+                options.editor_proof)
         finally:
+            if media is not None:
+                media.close()
             if plugin is not None:
                 plugin.close()
         report['postgres_image'] = IMAGE
@@ -197,6 +225,10 @@ with tempfile.TemporaryDirectory(prefix='axiompress-schema-', dir='/tmp') as tem
 
 (ROOT / 'docs').mkdir(exist_ok=True)
 (ROOT / 'docs/axiompress-phase3-database-last.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+if options.editor_proof:
+    if (report['https']['editor_proof'] or {}).get('outcome') != 'passed':
+        raise RuntimeError('Gutenberg component acceptance did not pass')
+    (ROOT / 'docs/axiompress-gutenberg-native-last.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
 if options.isolated_plugin:
     if not report['https']['isolated_plugin'] or report['https']['worker_runtime'] != 'runsc':
         raise RuntimeError('Phase 3 acceptance did not exercise the required isolated plugin')
@@ -206,3 +238,8 @@ print('PASS: ' + str(report['authentication']['checks']) + ' authentication chec
       + str(report['https']['checks']) + ' HTTPS integration checks')
 print('PASS: ' + str(report['content']['checks']) + ' content command checks')
 print('PASS: ' + str(report['public']['checks']) + ' PostgreSQL public read checks')
+print('PASS: ' + str(report['jobs']['checks']) + ' durable job/scheduler checks')
+print('PASS: ' + str(report['media']['checks']) + ' media quarantine/authorization checks')
+print('PASS: ' + str(report['platform']['checks']) + ' native platform checks')
+if options.editor_proof:
+    print('PASS: ' + str(report['https']['editor_proof']['checks']) + ' actual Gutenberg/native API browser checks')

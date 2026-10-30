@@ -8,6 +8,15 @@ This repository is developing an independent, clean-break WordPress fork. Legacy
 
 This direction does not authorize unrelated rewrites or removal of working functionality. Implement changes in reviewable stages with evidence appropriate to their scope.
 
+## Product continuity and feature parity
+
+- Preserve familiar WordPress publishing workflows and administration conventions while replacing unsafe runtime coupling. A clean break in executable compatibility does not authorize incidental feature loss or an unrelated visual redesign.
+- Prefer selectively reviewed Gutenberg and first-party interface components over recreating established editing behavior. Verify their dependencies, native API adapters, accessibility, licensing and security boundaries before adopting them. Do not load the inherited PHP administration bootstrap or arbitrary plugin scripts to obtain visual parity.
+- Treat the minimal native administration workspace as an integration prototype, not evidence of complete WordPress administration or Gutenberg feature parity. Prototype limitations must not silently become release requirements.
+- Before replacing or retiring an inherited workflow, record its retained behavior, native implementation/reuse boundary, remaining gaps and acceptance evidence. Removing or deferring a previously supported user workflow requires an explicit scope decision; unimplemented is not the same as intentionally excluded.
+- Cutover requires an explicitly reviewed feature scope, loss-aware migration, usable familiar workflows and authorization/failure/accessibility evidence. Preserve the inherited comparison environment until those gates pass. Do not claim full WordPress feature, plugin, theme or API compatibility from visual similarity or block parsing.
+- Keep detailed parity matrices and reuse experiments in ignored `docs/`. These tracked requirements remain authoritative when local plans are unavailable. Existing explicit architectural exclusions remain in force unless the user changes them.
+
 ## Relationship with official WordPress
 
 - Treat official WordPress as a source of reviewed changes, not a branch to merge routinely.

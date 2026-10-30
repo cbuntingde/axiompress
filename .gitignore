@@ -122,3 +122,6 @@ wp-tests-config.php
 
 # Visual regression test diffs
 tests/visual-regression/specs/__snapshots__
+
+# Local design questions, sketches and review captures.
+/.impeccable/

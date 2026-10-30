@@ -12,19 +12,24 @@ Implemented components include:
 
 -   PHP 8.5 request handling that does not load WordPress plugins, PHP themes or the WordPress startup files.
 -   Restricted Linux processes for plugin execution, with gVisor isolation, explicit permissions, resource limits and crash recovery.
+-   Direct gVisor execution without a Docker daemon, with approved package contents, permission withdrawal and interrupted-worker recovery.
 -   PostgreSQL 18 storage with separately restricted accounts for deployment, authentication and public reads.
 -   Login, sessions and protection against forged requests; account permissions are checked before accessing site data.
 -   Article editing, saved revisions, publication and scheduled publication, with checks for conflicting edits and repeated requests.
 -   Background jobs with retries and duplicate prevention. Delivery currently records event information; it does not execute arbitrary plugin callbacks.
 -   Private image uploads processed separately with gVisor. Regenerated images require an explicit publication action before becoming public.
+-   Host PHP/PostgreSQL image-job processing with verified TLS and a restricted database account; PNG, JPEG and WebP decoding runs separately through direct gVisor.
 -   Site settings, categories, tags and saved article relationships, with public pages rendered by core-owned templates.
 -   A basic administration workspace for testing article, image and settings operations; it is not a complete WordPress administration replacement.
 -   Gutenberg editing tests for paragraphs, headings, bold/italic formatting, saving, reloading and publication through AxiomPress APIs.
 -   Operator-controlled approval of plugin packages and permissions, including permission withdrawal and recovery checks.
 -   Core protections that prevent official WordPress packages from replacing AxiomPress.
+-   Reviewed local Linux service packages with file integrity checks and systemd installation. Installation validates prerequisites without starting or enabling the extension service.
 -   Repeatable tests for database behavior, plugin isolation, editing and performance.
 
 PostgreSQL 18 stores AxiomPress data. Public reads can use PostgreSQL articles through an explicit configuration setting; the default still reads the existing WordPress MySQL database for comparison. Plugin execution and image processing have been tested with gVisor on a dedicated WSL2 Linux system. Runc is used only for development tests. Independent security and deployment review are still required before production use.
+
+Plugin execution and image-job processing can now run without Docker. The Linux extension-service installer uses a dedicated core account, a service-owned cgroup subtree, read-only code and policy, and persistent recovery state. Local systemd tests cover package integrity, guest restrictions, normal restart, forced termination and refusal of missing isolation controls. Docker remains available for development and testing. This is not a complete production CMS installer: PHP-FPM/PostgreSQL provisioning, image-job service scheduling, signed distribution and updates, independent security review and real VPS acceptance remain unfinished.
 
 The [account and publishing tests](tools/axiompress/database/PHASE3_ACCEPTANCE.md) cover authentication, article changes, public reads, database failures and publication changes during plugin execution. Additional tests run plugin and image processing under gVisor and exercise administration and Gutenberg editing in Chrome. Passing these tests does not establish complete WordPress functionality or production readiness.
 
@@ -39,6 +44,8 @@ Remaining work includes the full administration and editing experience, a smalle
 -   [Core behavior and configuration](src/axiompress/README.md) and [public PostgreSQL configuration](src/axiompress/PublicReads.md)
 -   [Worker supervision and containment limits](tools/axiompress/supervisor/README.md)
 -   [Extension service, Linux host setup and verification](tools/axiompress/service/README.md)
+-   [Running plugins and image processing without Docker](tools/axiompress/runtime/README.md)
+-   [Linux extension-service packaging and installation](tools/axiompress/linux/README.md)
 -   [Package and installation policy](tools/axiompress/policy/README.md)
 -   [Data and API specifications](tools/axiompress/contracts/README.md)
 -   [PostgreSQL schema and migration operations](tools/axiompress/database/README.md)
@@ -51,9 +58,9 @@ Official WordPress is a source of selectively reviewed changes, not a branch to 
 
 Requirements:
 
--   Docker with a running Linux engine; the operator runners use PowerShell 7 (`pwsh`).
+-   Docker with a running Linux engine for the comparison site and container-based integration tests; the PowerShell runners use PowerShell 7 (`pwsh`). Direct worker execution and the Linux extension service do not require Docker.
 -   Node.js 24.18 or newer and npm 11.16 or newer, as declared in `package.json`.
--   Composer 2 and 64-bit PHP 8.5 for independent core/tooling checks. Runtime checks use Linux containers.
+-   Composer 2 and 64-bit PHP 8.5 for independent core/tooling checks. Direct runtime tests require Linux with gVisor and cgroups v2; extension-service installation requires systemd 254 or newer. See the linked Linux guides for PHP extensions and host preparation.
 
 The following Compose commands start the **existing WordPress site for comparison**, rather than the new PostgreSQL-backed application. On a new clone, copy `.env.example` to `.env` and review its settings. Set `LOCAL_PHP=8.5-fpm` to use the PHP 8.5 comparison image. Preserve an existing `.env` and database.
 

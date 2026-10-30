@@ -5,7 +5,7 @@ declare(strict_types=1);
 use AxiomPress\Core\Jobs\Runner;
 use AxiomPress\Core\PostgresConnection;
 
-require '/app/bootstrap.php';
+require getenv('AXIOM_MEDIA_CORE_BOOTSTRAP') ?: '/app/bootstrap.php';
 
 try {
     [$db, $site] = PostgresConnection::fromEnvironment('AXIOM_JOBS_');

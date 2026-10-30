@@ -14,9 +14,10 @@ import time
 
 MAX_REQUEST = 200000
 MAX_HANDLERS = 4
-SOCKET = Path('/channel/broker.sock')
-STATE = Path('/state')
+SOCKET = Path(os.environ.get('AXIOM_CHANNEL_DIRECTORY', '/channel')) / 'broker.sock'
+STATE = Path(os.environ.get('AXIOM_STATE_DIRECTORY', '/state'))
 APP = Path(__file__).resolve().parent
+PHP = os.environ.get('AXIOM_PHP_BINARY', 'php')
 
 
 def unique_object(pairs):
@@ -57,10 +58,10 @@ def handle(connection, core_uid):
     connection.settimeout(max(0.001, deadline - time.monotonic()))
     if connection.recv(1):
         return
-    process = subprocess.Popen(['php', str(APP / 'invoke.php')], stdin=subprocess.PIPE,
+    process = subprocess.Popen([PHP, str(APP / 'invoke.php')], stdin=subprocess.PIPE,
                                stdout=subprocess.PIPE, stderr=None, start_new_session=True)
     try:
-        output, _ = process.communicate(body, timeout=12)
+        output, _ = process.communicate(body, timeout=20)
         if process.returncode != 0 or len(output) > 1024:
             output = b'{"error":"extension_unavailable"}'
         else:
@@ -77,7 +78,7 @@ def handle(connection, core_uid):
 
 
 def recover():
-    subprocess.run(['php', str(APP / 'recover.php')], check=True, timeout=20)
+    subprocess.run([PHP, str(APP / 'recover.php')], check=True, timeout=55)
 
 
 def main():
@@ -93,9 +94,28 @@ def main():
         runtime == 'runc' and os.environ.get('AXIOM_ALLOW_DEV_RUNC') != '1'
     ):
         raise RuntimeError('gVisor required; runc is an explicit development test only')
-    info = json.loads(subprocess.check_output(['docker', 'info', '--format', '{{json .}}'], timeout=5))
-    if runtime not in info['Runtimes'] or info.get('CgroupVersion') != '2':
-        raise RuntimeError('Selected runtime and cgroups v2 must be available; no fallback')
+    backend = os.environ.get('AXIOM_WORKER_BACKEND', 'docker')
+    if backend == 'direct':
+        if runtime != 'runsc' or not Path(PHP).is_absolute():
+            raise RuntimeError('Direct service requires gVisor and an absolute PHP executable')
+        if not STATE.is_absolute() or not SOCKET.is_absolute():
+            raise RuntimeError('Absolute operator-provisioned state and channel paths required')
+        executable = Path(PHP)
+        for path in (executable, *executable.parents):
+            metadata = path.lstat()
+            if path.is_symlink() or metadata.st_uid != 0 or (
+                metadata.st_mode & 0o022 and not metadata.st_mode & stat.S_ISVTX
+            ):
+                raise RuntimeError('PHP executable and its directories must be operator-controlled')
+        helper = APP.parent / 'runtime/direct.py'
+        subprocess.run(['/usr/bin/python3', str(helper), '--config', os.environ['AXIOM_DIRECT_CONFIG'], 'check'],
+                       check=True, capture_output=True, timeout=5)
+    elif backend == 'docker':
+        info = json.loads(subprocess.check_output(['docker', 'info', '--format', '{{json .}}'], timeout=5))
+        if runtime not in info['Runtimes'] or info.get('CgroupVersion') != '2':
+            raise RuntimeError('Selected runtime and cgroups v2 must be available; no fallback')
+    else:
+        raise RuntimeError('Unknown worker backend')
     for directory in (STATE, STATE / 'admission', STATE / 'workers', SOCKET.parent):
         if directory.is_symlink() or not directory.is_dir():
             raise RuntimeError('Operator-provisioned private directories required')

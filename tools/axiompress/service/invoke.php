@@ -5,6 +5,7 @@ declare(strict_types=1);
 use AxiomPress\Policy\PolicyStore;
 use AxiomPress\Service\Invocation;
 use AxiomPress\Supervisor\Supervisor;
+use AxiomPress\Supervisor\DirectRuntime;
 
 require dirname(__DIR__) . '/policy/bootstrap.php';
 require dirname(__DIR__) . '/supervisor/Supervisor.php';
@@ -27,17 +28,24 @@ try {
     $read = static fn(string $site, string $id): ?stdClass =>
         $site === $invocation->site && $id === $content->content_id ? $content : null;
     $runtime = getenv('AXIOM_SERVICE_RUNTIME') ?: 'runsc';
+    $backend = getenv('AXIOM_WORKER_BACKEND') ?: 'docker';
+    if (!in_array($backend, array('docker', 'direct'), true)) {
+        throw new RuntimeException('Unknown worker backend.');
+    }
+    $direct = $backend === 'direct' ? new DirectRuntime((string) getenv('AXIOM_DIRECT_CONFIG')) : null;
+    $stateDirectory = getenv('AXIOM_STATE_DIRECTORY') ?: '/state';
     $stage = 'policy';
     $supervisor = Supervisor::fromPolicy(
-        new PolicyStore('/policy/installations.sqlite', true),
+        new PolicyStore(getenv('AXIOM_POLICY_FILE') ?: '/policy/installations.sqlite', true),
         $invocation->installation,
         $invocation->site,
         $allowed,
         $read,
-        '/state/admission',
+        $stateDirectory . '/admission',
         $runtime,
-        '/state/workers',
-        (string) getenv('AXIOM_SERVICE_POOL')
+        $stateDirectory . '/workers',
+        (string) getenv('AXIOM_SERVICE_POOL'),
+        $direct
     );
     $stage = 'invoke';
     $result = $supervisor->run($invocation->installation, $invocation->site, 'anonymous', $content->content_id);

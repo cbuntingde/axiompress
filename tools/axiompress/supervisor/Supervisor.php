@@ -31,7 +31,8 @@ final class Supervisor
         string $admissionDirectory = '/admission',
         string $runtime = 'runc',
         ?string $journalDirectory = null,
-        ?string $pool = null
+        ?string $pool = null,
+        ?DirectRuntime $direct = null
     ): self {
         $record = $policy->resolve($installation, $site);
         $image = $record['image'];
@@ -44,7 +45,8 @@ final class Supervisor
             'reading',
             $runtime,
             $journalDirectory,
-            $pool
+            $pool,
+            $direct
         );
         $supervisor->admission = new AdmissionGate($admissionDirectory);
         return $supervisor;
@@ -62,7 +64,8 @@ final class Supervisor
         private readonly string $mode = 'reading',
         private readonly string $runtime = 'runc',
         private readonly ?string $journalDirectory = null,
-        private readonly ?string $pool = null
+        private readonly ?string $pool = null,
+        private readonly ?DirectRuntime $direct = null
     ) {
         if (
             PHP_OS_FAMILY !== 'Linux' || !extension_loaded('pcntl')
@@ -78,6 +81,9 @@ final class Supervisor
         }
         if (!in_array($runtime, array('runc', 'runsc'), true)) {
             throw new RuntimeException('Unsupported trusted runtime.');
+        }
+        if ($direct !== null && $runtime !== 'runsc') {
+            throw new RuntimeException('Direct workers require gVisor.');
         }
         if (
             $journalDirectory !== null && (!is_dir($journalDirectory) || is_link($journalDirectory)
@@ -192,47 +198,55 @@ final class Supervisor
             if ($journal !== null) {
                 self::journal($journal, 'creating');
             }
-            // gVisor needs host tasks for its userspace kernel/gofer. Bound those separately
-            // separately: the guest's hard nproc limit cannot be raised by its UID.
-            $pidsLimit = $this->runtime === 'runsc' ? 64 : 16;
-            self::command(array(
-                'docker', 'create', '--pull=never', '--name', $name, '--label', $label, '--runtime=' . $this->runtime,
-                '--read-only', '--network=none', '--ipc=none', '--cap-drop=ALL',
-                '--security-opt=no-new-privileges:true', '--user=10001:10001',
-                '--memory=128m', '--memory-swap=128m', '--cpus=0.5', '--pids-limit=' . $pidsLimit,
-                '--ulimit=nofile=64:64', '--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=64m',
-                ...($this->runtime === 'runsc' ? array('--ulimit=nproc=16:16') : array()),
-                '--log-driver=none', '--stop-timeout=1', '-i',
-                '--env', 'AXIOM_WORKER_MODE=' . $this->mode, $this->image,
-            ), 3);
-            $created = true;
-            if ($journal !== null) {
-                self::journal($journal, 'created');
-            }
-            $inspection = json_decode(
-                self::command(array('docker', 'inspect', $name), 1),
-                true,
-                32,
-                JSON_THROW_ON_ERROR
-            );
-            $host = $inspection[0]['HostConfig'];
-            $softLimits = array_column($host['Ulimits'], 'Soft', 'Name');
-            $hardLimits = array_column($host['Ulimits'], 'Hard', 'Name');
-            if (
-                $inspection[0]['Image'] !== $this->image
-                || !$host['ReadonlyRootfs'] || $host['NetworkMode'] !== 'none' || $host['Memory'] !== 134217728
-                || $host['MemorySwap'] !== 134217728 || $host['PidsLimit'] !== $pidsLimit
-                || $host['NanoCpus'] !== 500000000 || $host['CapDrop'] !== array('ALL')
-                || !in_array('no-new-privileges:true', $host['SecurityOpt'], true)
-                || $host['Privileged'] || $host['Runtime'] !== $this->runtime || $host['IpcMode'] !== 'none'
-                || $inspection[0]['Mounts'] !== array() || $inspection[0]['Config']['User'] !== '10001:10001'
-                || ($softLimits['nofile'] ?? null) !== 64 || ($hardLimits['nofile'] ?? null) !== 64
-                || ($this->runtime === 'runsc' && (($softLimits['nproc'] ?? null) !== 16
+            if ($this->direct !== null) {
+                $host = $this->direct->prepare($name, $this->image, $this->mode);
+                $created = true;
+                if ($journal !== null) {
+                    self::journal($journal, 'created');
+                }
+            } else {
+                // Bound host tasks for gVisor separately from the guest's hard nproc limit.
+                $pidsLimit = $this->runtime === 'runsc' ? 64 : 16;
+                self::command(array(
+                    'docker', 'create', '--pull=never', '--name', $name, '--label', $label,
+                    '--runtime=' . $this->runtime, '--read-only', '--network=none', '--ipc=none', '--cap-drop=ALL',
+                    '--security-opt=no-new-privileges:true', '--user=10001:10001',
+                    '--memory=128m', '--memory-swap=128m', '--cpus=0.5', '--pids-limit=' . $pidsLimit,
+                    '--ulimit=nofile=64:64', '--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=64m',
+                    ...($this->runtime === 'runsc' ? array('--ulimit=nproc=16:16') : array()),
+                    '--log-driver=none', '--stop-timeout=1', '-i',
+                    '--env', 'AXIOM_WORKER_MODE=' . $this->mode, $this->image,
+                ), 3);
+                $created = true;
+                if ($journal !== null) {
+                    self::journal($journal, 'created');
+                }
+                $inspection = json_decode(
+                    self::command(array('docker', 'inspect', $name), 1),
+                    true,
+                    32,
+                    JSON_THROW_ON_ERROR
+                );
+                $host = $inspection[0]['HostConfig'];
+                $softLimits = array_column($host['Ulimits'], 'Soft', 'Name');
+                $hardLimits = array_column($host['Ulimits'], 'Hard', 'Name');
+                if (
+                    $inspection[0]['Image'] !== $this->image
+                    || !$host['ReadonlyRootfs'] || $host['NetworkMode'] !== 'none' || $host['Memory'] !== 134217728
+                    || $host['MemorySwap'] !== 134217728 || $host['PidsLimit'] !== $pidsLimit
+                    || $host['NanoCpus'] !== 500000000 || $host['CapDrop'] !== array('ALL')
+                    || !in_array('no-new-privileges:true', $host['SecurityOpt'], true)
+                    || $host['Privileged'] || $host['Runtime'] !== $this->runtime || $host['IpcMode'] !== 'none'
+                    || $inspection[0]['Mounts'] !== array() || $inspection[0]['Config']['User'] !== '10001:10001'
+                    || ($softLimits['nofile'] ?? null) !== 64 || ($hardLimits['nofile'] ?? null) !== 64
+                    || ($this->runtime === 'runsc' && (($softLimits['nproc'] ?? null) !== 16
                     || ($hardLimits['nproc'] ?? null) !== 16))
-            ) {
-                throw new RuntimeException('Runtime profile mismatch.');
+                ) {
+                    throw new RuntimeException('Runtime profile mismatch.');
+                }
             }
-            $process = proc_open(array('docker', 'start', '-ai', $name), array(
+            $attachment = $this->direct?->attachment($name) ?? array('docker', 'start', '-ai', $name);
+            $process = proc_open($attachment, array(
                 0 => array('pipe', 'r'), 1 => array('pipe', 'w'), 2 => array('pipe', 'w'),
             ), $pipes);
             if (!is_resource($process)) {
@@ -374,13 +388,16 @@ final class Supervisor
                     proc_close($process);
                 }
             } finally {
-                if ($createAttempted && !$created) {
+                if ($this->direct !== null && $createAttempted) {
+                    $this->lastState = $this->direct->remove($name);
+                    $created = true;
+                } elseif ($createAttempted && !$created) {
                     // A failed/timeout client command may still have created a daemon-side object.
                     $found = self::command(array('docker', 'ps', '-aq', '--filter',
                         'label=' . $label, '--filter', 'name=^/' . $name . '$'), 1);
                     $created = trim($found) !== '';
                 }
-                if ($created) {
+                if ($created && $this->direct === null) {
                     try {
                         $this->lastState = json_decode(self::command(array(
                             'docker', 'inspect', '--format', '{{json .State}}', $name,

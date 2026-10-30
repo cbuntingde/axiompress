@@ -289,6 +289,8 @@ def verify(root, directory, network, docker, containers, name, sql, plugin=None,
                 status, _, upload = request('POST', '/v1/media', {'name': 'browser-image', 'mime': mime, 'data': source},
                                             cookie=cookie, csrf=csrf, key=secrets.token_hex(32))
                 check(status == 202, 'Actual HTTP image enters quarantine')
+                if mime == 'image/png' and hasattr(media, 'recover_after_claim'):
+                    media.recover_after_claim(sql, upload['id'])
                 image_path = '/v1/media/' + upload['id']
                 public_image = '/v1/sites/1/media/' + upload['id']
                 check(request('GET', public_image)[0] == 404 and request('GET', image_path + '/file', cookie=cookie)[0] == 404,
@@ -373,6 +375,7 @@ def verify(root, directory, network, docker, containers, name, sql, plugin=None,
                 'supervisor_image': plugin.image if plugin is not None else None,
                 'approved_plugin_image': plugin.approved if plugin is not None else None,
                 'isolated_media': media is not None,
+                'direct_media': media.report() if media is not None and hasattr(media, 'report') else None,
                 'media_processor_image': media.processor_image if media is not None else None,
                 'browser': browser_report,
                 'editor_proof': editor_report,

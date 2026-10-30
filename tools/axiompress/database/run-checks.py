@@ -22,9 +22,15 @@ operator_checks = []
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--isolated-plugin', action='store_true', help='Require native gVisor for Phase 3 acceptance')
 parser.add_argument('--isolated-media', action='store_true', help='Require native gVisor for media decoder acceptance')
+parser.add_argument('--direct-media-runsc', type=Path,
+                    help='Use this absolute runsc executable for host PHP/PostgreSQL image processing tests')
 parser.add_argument('--browser', action='store_true', help='Run installed Windows Chrome against disposable HTTPS admin')
 parser.add_argument('--editor-proof', action='store_true', help='Run pinned Gutenberg/native API proof in Windows Chrome')
 options = parser.parse_args()
+if options.direct_media_runsc is not None:
+    if not options.direct_media_runsc.is_absolute():
+        parser.error('--direct-media-runsc requires an absolute executable path')
+    options.isolated_media = True
 
 
 def docker(*args, data=None, timeout=30):
@@ -80,6 +86,7 @@ with tempfile.TemporaryDirectory(prefix='axiompress-schema-', dir='/tmp') as tem
         containers.append(NAME)
         docker('run', '-d', '--name', NAME, '--network', NETWORK, '--network-alias=postgres',
                '--network-alias=wrong-postgres', '--memory=512m', '--memory-swap=512m', '--pids-limit=128',
+               *(['--publish', '127.0.0.1::5432'] if options.direct_media_runsc is not None else []),
                '--tmpfs=/var/lib/postgresql:rw,size=256m', '--env', 'POSTGRES_PASSWORD_FILE=/run/secrets/root',
                '--env', 'POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 --auth-local=peer', *mounts,
                IMAGE, '-c', 'ssl=on', '-c', 'ssl_cert_file=/run/secrets/server.crt',
@@ -198,8 +205,12 @@ with tempfile.TemporaryDirectory(prefix='axiompress-schema-', dir='/tmp') as tem
         media = None
         try:
             if options.isolated_media:
-                media = runpy.run_path(str(ROOT / 'tools/axiompress/media/proof.py'))['Fixture'](
-                    ROOT, directory, NETWORK, docker, NAME)
+                if options.direct_media_runsc is not None:
+                    media = runpy.run_path(str(ROOT / 'tools/axiompress/media/direct-fixture.py'))['Fixture'](
+                        ROOT, directory, docker, NAME, options.direct_media_runsc)
+                else:
+                    media = runpy.run_path(str(ROOT / 'tools/axiompress/media/proof.py'))['Fixture'](
+                        ROOT, directory, NETWORK, docker, NAME)
                 media.start()
             if options.isolated_plugin:
                 plugin = runpy.run_path(str(ROOT / 'tools/axiompress/service/phase3-fixture.py'))['Fixture'](
@@ -243,3 +254,5 @@ print('PASS: ' + str(report['media']['checks']) + ' media quarantine/authorizati
 print('PASS: ' + str(report['platform']['checks']) + ' native platform checks')
 if options.editor_proof:
     print('PASS: ' + str(report['https']['editor_proof']['checks']) + ' actual Gutenberg/native API browser checks')
+if options.direct_media_runsc is not None:
+    print('PASS: ' + str(report['https']['direct_media']['checks']) + ' direct PostgreSQL/image processing checks')

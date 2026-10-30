@@ -6,16 +6,17 @@ use AxiomPress\Policy\PolicyStore;
 
 require __DIR__ . '/bootstrap.php';
 $command = $argv[1] ?? '';
+$policyFile = getenv('AXIOM_POLICY_FILE') ?: '/policy/installations.sqlite';
 $expectedCount = array('describe' => 4, 'disable' => 5, 'approve-read' => 6);
 if (
     !isset($expectedCount[$command]) || count($argv) !== $expectedCount[$command]
-    || !is_file('/policy/installations.sqlite')
+    || !str_starts_with($policyFile, '/') || !is_file($policyFile)
 ) {
     throw new RuntimeException(
         'Use describe ID SITE, disable ID SITE GENERATION, or approve-read ID SITE GENERATION IMAGE.'
     );
 }
-$store = new PolicyStore('/policy/installations.sqlite', $command === 'describe');
+$store = new PolicyStore($policyFile, $command === 'describe');
 $record = $store->describe($argv[2], $argv[3]);
 if ($record === null) {
     throw new RuntimeException('Unknown installation/site.');

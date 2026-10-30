@@ -17,6 +17,19 @@ class Controller:
     def __init__(self, docker, configuration):
         self.docker = docker
         self.config = configuration
+        backend = configuration.get('backend', 'docker')
+        if backend not in ('docker', 'direct'):
+            raise RuntimeError('Unknown media runtime backend')
+        self.direct = None
+        if backend == 'direct':
+            runtime = runpy.run_path(str(Path(__file__).resolve().parents[1] / 'runtime/direct.py'))
+            self.direct = runtime['Runtime'](configuration['runtime_config'])
+            runtime['controlled'](configuration['php'])
+            runtime['controlled'](configuration['core_bootstrap'])
+            _, artifact = self.direct.artifact(configuration['processor_image'])
+            if artifact['kind'] != 'image':
+                raise RuntimeError('Fixed approved image decoder required')
+            return
         for label in ('controller_image', 'processor_image'):
             if not re.fullmatch(r'sha256:[a-f0-9]{64}', configuration[label]):
                 raise RuntimeError('Operator-pinned media images required')
@@ -26,6 +39,20 @@ class Controller:
 
     def control(self, operation, value=None):
         settings = self.config
+        if self.direct is not None:
+            environment = {'PATH': '/usr/bin:/bin', 'LANG': 'C',
+                'AXIOM_MEDIA_CORE_BOOTSTRAP': str(settings['core_bootstrap']),
+                'AXIOM_JOBS_SITE_ID': str(settings['site']),
+                'AXIOM_JOBS_PG_PASSWORD_FILE': str(settings['secret_file']),
+                'AXIOM_JOBS_PG_CA_FILE': str(settings['ca_file'])}
+            environment.update({'AXIOM_JOBS_PG_' + label: str(settings[label.lower()])
+                                for label in ('HOST', 'PORT', 'DATABASE', 'USER')})
+            result = subprocess.run([settings['php'], str(Path(__file__).with_name('control.php')), operation],
+                input=None if value is None else json.dumps(value), capture_output=True, text=True,
+                env=environment, timeout=15)
+            if result.returncode or len(result.stdout) > 3145728:
+                raise RuntimeError('Database media operation failed')
+            return json.loads(result.stdout)
         mounts = [part for label, target in (('secret_file', 'jobs'), ('ca_file', 'ca.crt')) for part in (
             '--mount', 'type=bind,source=' + str(settings[label]) + ',target=/run/secrets/' + target + ',readonly')]
         environment = [part for label in ('HOST', 'PORT', 'DATABASE', 'USER') for part in (
@@ -53,7 +80,8 @@ class Controller:
             name = 'axiompress-media-' + secrets.token_hex(16)
             try:
                 source = base64.b64decode(task['data'].replace('\n', ''), validate=True)
-                result = transform(self.docker, self.config['processor_image'], source, name, self.config['state_directory'])
+                result = transform(self.docker, self.config['processor_image'], source, name,
+                                   self.config['state_directory'], self.direct)
                 outcome = 'invalid' if 'error' in result else 'ready'
             except (RuntimeError, ValueError, subprocess.SubprocessError):
                 if any(path.name != 'owner.lock' for path in Path(self.config['state_directory']).iterdir()):

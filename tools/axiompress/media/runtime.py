@@ -21,7 +21,7 @@ def sync_directory(directory):
         os.close(descriptor)
 
 
-def transform(docker, image, source, name, state_directory):
+def transform(docker, image, source, name, state_directory, direct=None):
     directory = Path(state_directory)
     if (directory.is_symlink() or not directory.is_dir() or directory.stat().st_uid != os.getuid()
             or directory.stat().st_mode & 0o077):
@@ -29,21 +29,26 @@ def transform(docker, image, source, name, state_directory):
     descriptor = os.open(directory / 'owner.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        return locked_transform(docker, image, source, name, directory)
+        return locked_transform(docker, image, source, name, directory, direct)
     finally:
         os.close(descriptor)
 
 
-def locked_transform(docker, image, source, name, state_directory):
+def locked_transform(docker, image, source, name, state_directory, direct=None):
     if not re.fullmatch(r'sha256:[a-f0-9]{64}', image) or len(source) > 2097152 or not re.fullmatch(
             r'axiompress-media-[a-f0-9]{32}', name):
         raise RuntimeError('Pinned processor image and bounded input required')
-    info = json.loads(docker('info', '--format', '{{json .}}'))
-    if 'runsc' not in info['Runtimes'] or str(info['CgroupVersion']) != '2':
-        raise RuntimeError('Media processing requires runsc; no runtime fallback')
-    state = json.loads(docker('image', 'inspect', image))[0]
-    if state['Config'].get('Labels', {}).get('dev.axiompress.media.processor') != '1':
-        raise RuntimeError('Operator-approved fixed media processor image required')
+    if direct is None:
+        info = json.loads(docker('info', '--format', '{{json .}}'))
+        if 'runsc' not in info['Runtimes'] or str(info['CgroupVersion']) != '2':
+            raise RuntimeError('Media processing requires runsc; no runtime fallback')
+        state = json.loads(docker('image', 'inspect', image))[0]
+        if state['Config'].get('Labels', {}).get('dev.axiompress.media.processor') != '1':
+            raise RuntimeError('Operator-approved fixed media processor image required')
+    else:
+        _, manifest = direct.artifact(image)
+        if manifest['kind'] != 'image':
+            raise RuntimeError('Approved fixed image decoder required')
     created = False
     process = None
     directory = Path(state_directory)
@@ -58,18 +63,27 @@ def locked_transform(docker, image, source, name, state_directory):
         journal.flush()
         os.fsync(journal.fileno())
     sync_directory(directory)
+    worker = 'axiompress-worker-' + name.removeprefix('axiompress-media-')[:24]
     try:
-        identifier = docker('create', '--name', name, '--runtime=runsc', '--network=none', '--read-only',
+        if direct is not None:
+            direct.prepare(worker, image)
+            created = True
+            identifier = worker
+            attachment = ['/usr/bin/python3', str(Path(__file__).resolve().parents[1] / 'runtime/direct.py'),
+                          '--config', str(direct.configuration_path), 'start', worker]
+        else:
+            identifier = docker('create', '--name', name, '--runtime=runsc', '--network=none', '--read-only',
                '--user=10001:10001', '--cap-drop=ALL', '--security-opt=no-new-privileges:true',
                '--memory=128m', '--memory-swap=128m', '--cpus=0.5', '--pids-limit=64',
                '--ulimit=nofile=64:64', '--ulimit=nproc=16:16',
                '--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=8m', '--interactive', image)
-        created = True
-        profile = json.loads(docker('inspect', name))[0]
-        if (profile['HostConfig']['Runtime'] != 'runsc' or profile['HostConfig']['NetworkMode'] != 'none'
+            created = True
+            attachment = ['docker', 'start', '--attach', '--interactive', name]
+            profile = json.loads(docker('inspect', name))[0]
+            if (profile['HostConfig']['Runtime'] != 'runsc' or profile['HostConfig']['NetworkMode'] != 'none'
                 or not profile['HostConfig']['ReadonlyRootfs'] or profile['Mounts']
                 or profile['HostConfig']['Memory'] != 134217728 or profile['Config']['User'] != '10001:10001'):
-            raise RuntimeError('Media processor fixed profile differs from contract')
+                raise RuntimeError('Media processor fixed profile differs from contract')
         temporary = intent.with_suffix('.confirmed')
         with temporary.open('x', encoding='ascii') as journal:
             os.fchmod(journal.fileno(), 0o600)
@@ -81,7 +95,7 @@ def locked_transform(docker, image, source, name, state_directory):
         with tempfile.TemporaryFile() as stream:
             stream.write(struct.pack('!I', len(source)) + source)
             stream.seek(0)
-            process = subprocess.Popen(['docker', 'start', '--attach', '--interactive', name],
+            process = subprocess.Popen(attachment,
                                        stdin=stream, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             output = bytearray()
             errors = 0
@@ -121,13 +135,19 @@ def locked_transform(docker, image, source, name, state_directory):
             raise RuntimeError('Invalid processor PNG output')
         return result
     finally:
-        if created:
-            docker('rm', '-f', name)
-            intent.unlink()
-            sync_directory(directory)
-        if process is not None:
-            if process.poll() is None:
-                process.kill()
-            process.wait(timeout=2)
-            process.stdout.close()
-            process.stderr.close()
+        try:
+            if process is not None:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=2)
+                process.stdout.close()
+                process.stderr.close()
+        finally:
+            if direct is not None:
+                direct.remove(worker)
+                intent.unlink()
+                sync_directory(directory)
+            elif created:
+                docker('rm', '-f', name)
+                intent.unlink()
+                sync_directory(directory)

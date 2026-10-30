@@ -32,6 +32,8 @@ This direction does not authorize unrelated rewrites or removal of working funct
 
 ## Security architecture principles
 
+- Docker is optional for production installation. Support ordinary Linux services with gVisor-managed plugin and image-processing workers; retain Docker as an optional development/test tool. Existing Docker-based checks must continue working during the change.
+- Removing Docker must preserve the isolation and permission requirements. Do not silently substitute runc or unrestricted PHP processes when gVisor or required host controls are unavailable. Verify direct worker startup, resource limits, filesystem/network restrictions, package approval and recovery before describing the replacement as supported.
 - Third-party plugin and theme code must not execute inside the privileged core process in the target architecture.
 - A separate process alone is not sufficient isolation. Enforce operating-system boundaries, restricted credentials and filesystem access, network policy, resource limits, and brokered capabilities.
 - Core owns authentication, authorization, sessions, and access to core data. Plugin requests require explicit actor, site, resource, and installation-grant checks.

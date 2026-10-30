@@ -8,3 +8,4 @@ require_once __DIR__ . '/ImageBinding.php';
 require_once __DIR__ . '/PolicyStore.php';
 require_once __DIR__ . '/../supervisor/AdmissionLease.php';
 require_once __DIR__ . '/../supervisor/AdmissionGate.php';
+require_once __DIR__ . '/../supervisor/DirectRuntime.php';

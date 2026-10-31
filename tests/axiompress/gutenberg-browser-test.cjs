@@ -132,7 +132,13 @@ const { randomBytes } = require( 'node:crypto' );
 			'Formatting survives full browser reload'
 		);
 		await page
-			.getByRole( 'button', { name: 'Add heading', exact: true } )
+			.getByRole( 'button', {
+				name: 'Toggle block inserter',
+				exact: true,
+			} )
+			.click();
+		await page
+			.getByRole( 'menuitem', { name: 'Heading', exact: true } )
 			.click();
 		const heading = page.locator( '#editor h2[contenteditable=true]' );
 		await heading.click();
@@ -162,7 +168,13 @@ const { randomBytes } = require( 'node:crypto' );
 		);
 		if ( fixture.populated_media && fixture.media ) {
 			await page
-				.getByRole( 'button', { name: 'Add image', exact: true } )
+				.getByRole( 'button', {
+					name: 'Toggle block inserter',
+					exact: true,
+				} )
+				.click();
+			await page
+				.getByRole( 'menuitem', { name: 'Image', exact: true } )
 				.click();
 			await page
 				.getByLabel( 'Published image', { exact: true } )
@@ -203,6 +215,58 @@ const { randomBytes } = require( 'node:crypto' );
 				( await heading.locator( 'em' ).count() ) === 1,
 			'Heading formatting and paste survive native reload'
 		);
+		check(
+			( await page
+				.getByRole( 'tab', { name: 'Document', exact: true } )
+				.count() ) === 1 &&
+				( await page
+					.getByRole( 'tab', { name: 'Block', exact: true } )
+					.count() ) === 1,
+			'Editor sidebar offers Document and Block tabs'
+		);
+		await page
+			.getByRole( 'button', { name: 'List view', exact: true } )
+			.click();
+		check(
+			(
+				await page.locator( '.editor-list' ).textContent()
+			 ).includes( 'Heading' ),
+			'List view outlines canvas blocks'
+		);
+		await page
+			.getByRole( 'button', { name: 'List view', exact: true } )
+			.click();
+		await page
+			.getByRole( 'button', { name: 'Settings', exact: true } )
+			.click();
+		check(
+			( await page.locator( '#editor aside' ).count() ) === 0,
+			'Sidebar toggle hides editor settings'
+		);
+		await page
+			.getByRole( 'button', { name: 'Settings', exact: true } )
+			.click();
+		await page.locator( '#editor h2[contenteditable=true]' ).click();
+		await page
+			.getByRole( 'tab', { name: 'Block', exact: true } )
+			.click();
+		await page
+			.getByRole( 'spinbutton', { name: 'Level', exact: true } )
+			.fill( '3' );
+		await page
+			.getByRole( 'button', { name: 'Save draft', exact: true } )
+			.click();
+		await notice( 'Draft saved with native API.' );
+		await page.reload();
+		await notice( 'Saved revision loaded.' );
+		check(
+			(
+				await page
+					.locator( '#editor h3[contenteditable=true]' )
+					.textContent()
+			 ).includes( 'pasted text' ),
+			'Block inspector level persists through native reload'
+		);
 		if ( fixture.populated_media && fixture.media ) {
 			check(
 				( await page
@@ -228,6 +292,72 @@ const { randomBytes } = require( 'node:crypto' );
 			rendered.status() === 200 &&
 				( await rendered.text() ).includes( '<strong>bold</strong>' ),
 			'Native safe renderer preserves approved formatting'
+		);
+		const panelSession = await (
+			await context.request.get( fixture.origin + '/v1/session' )
+		).json();
+		const termed = await context.request.post(
+			fixture.origin + '/v1/platform/terms.write',
+			{
+				headers: {
+					Origin: fixture.origin,
+					'X-CSRF-Token': panelSession.csrf_token,
+					'Idempotency-Key': randomBytes( 32 ).toString( 'hex' ),
+				},
+				data: {
+					expected_version: '0',
+					id: '',
+					kind: 'category',
+					name: 'Sidebar category',
+					slug: 'sidebar-category',
+				},
+			}
+		);
+		assert.equal( termed.status(), 200 );
+		await page.reload();
+		await notice( 'Saved revision loaded.' );
+		await page
+			.getByRole( 'tab', { name: 'Document', exact: true } )
+			.click();
+		check(
+			( await page.locator( '#editor aside' ).textContent() ).includes(
+				'Published'
+			),
+			'Document panel reports publication status'
+		);
+		await page
+			.getByRole( 'checkbox', {
+				name: 'Sidebar category',
+				exact: true,
+			} )
+			.check();
+		await page
+			.getByRole( 'button', {
+				name: 'Apply categories and tags',
+				exact: true,
+			} )
+			.click();
+		await notice( 'Categories and tags saved.' );
+		stored = await (
+			await context.request.get(
+				fixture.origin + '/v1/articles/' + id
+			)
+		).json();
+		check(
+			stored.terms.length === 1,
+			'Document panel taxonomy persists natively'
+		);
+		await page
+			.getByRole( 'button', { name: 'Unpublish', exact: true } )
+			.click();
+		await notice( 'Saved revision unpublished.' );
+		check(
+			(
+				await context.request.get(
+					fixture.origin + '/site/1/articles/' + id
+				)
+			).status() === 404,
+			'Unpublished article leaves the public site'
 		);
 		await page.screenshot( {
 			path: path.join( output, 'desktop.png' ),

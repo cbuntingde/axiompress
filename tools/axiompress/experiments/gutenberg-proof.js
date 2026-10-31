@@ -4,7 +4,9 @@
 	const { createElement: h, Fragment, useState, useEffect } = wp.element;
 	const {
 		BlockEditorProvider,
+		BlockInspector,
 		BlockList,
+		InspectorControls,
 		WritingFlow,
 		ObserveTyping,
 		RichText,
@@ -12,6 +14,22 @@
 		RichTextToolbarButton,
 		useBlockProps,
 	} = wp.blockEditor;
+	// The pinned build exports the outline only under its experimental alias.
+	const ListView =
+		wp.blockEditor.ListView || wp.blockEditor.__experimentalListView;
+	if ( ! ListView )
+		throw new Error(
+			'Block outline component unavailable in pinned build.'
+		);
+	const {
+		DropdownMenu,
+		MenuItem,
+		PanelBody,
+		RangeControl,
+		SelectControl,
+		TabPanel,
+		TextControl,
+	} = wp.components;
 	const { registerBlockType, createBlock } = wp.blocks;
 	wp.apiFetch.setFetchHandler( () => {
 		throw new Error(
@@ -32,7 +50,11 @@
 		pending = null,
 		busy = false,
 		dirty = false,
-		update;
+		update,
+		refreshShell = null,
+		sidebarOpen = true,
+		listOpen = false,
+		termsList = [];
 	const $ = ( id ) => document.getElementById( id );
 	const status = ( text ) => {
 		$( 'status' ).textContent = text;
@@ -119,50 +141,87 @@
 			const selected = library.find(
 				( image ) => image.id === attributes.media
 			);
+			const options = [
+				{ value: '', label: 'Select a published image' },
+				...library.map( ( image ) => ( {
+					value: image.id,
+					label: image.name,
+				} ) ),
+			];
 			return h(
-				'div',
-				{ ...useBlockProps() },
+				Fragment,
+				null,
 				h(
-					'label',
+					InspectorControls,
 					null,
-					'Published image',
 					h(
-						'select',
-						{
-							'aria-label': 'Published image',
+						PanelBody,
+						{ title: 'Settings', initialOpen: true },
+						h( SelectControl, {
+							label: 'Published image',
 							value: attributes.media,
-							onChange: ( event ) =>
-								setAttributes( {
-									media: event.target.value,
-								} ),
-						},
-						h(
-							'option',
-							{ value: '' },
-							'Select a published image'
-						),
-						library.map( ( image ) =>
-							h(
-								'option',
-								{ key: image.id, value: image.id },
-								image.name
-							)
-						)
+							options,
+							onChange: ( media ) =>
+								setAttributes( { media } ),
+						} ),
+						h( TextControl, {
+							label: 'Alternative text',
+							value: attributes.alt,
+							maxLength: 512,
+							placeholder: 'Describe this image',
+							onChange: ( alt ) =>
+								setAttributes( { alt } ),
+						} )
 					)
 				),
-				h( 'input', {
-					'aria-label': 'Alternative text',
-					value: attributes.alt,
-					maxLength: 512,
-					placeholder: 'Describe this image',
-					onChange: ( event ) =>
-						setAttributes( { alt: event.target.value } ),
-				} ),
-				selected &&
-					h( 'img', {
-						src: '/v1/media/' + attributes.media + '/file',
-						alt: attributes.alt,
-					} )
+				h(
+					'div',
+					{ ...useBlockProps() },
+					h(
+						'label',
+						null,
+						'Published image',
+						h(
+							'select',
+							{
+								'aria-label': 'Published image',
+								value: attributes.media,
+								onChange: ( event ) =>
+									setAttributes( {
+										media: event.target.value,
+									} ),
+							},
+							options.map( ( option ) =>
+								h(
+									'option',
+									{
+										key: option.value,
+										value: option.value,
+									},
+									option.label
+								)
+							)
+						)
+					),
+					h( 'input', {
+						'aria-label': 'Alternative text',
+						value: attributes.alt,
+						maxLength: 512,
+						placeholder: 'Describe this image',
+						onChange: ( event ) =>
+							setAttributes( {
+								alt: event.target.value,
+							} ),
+					} ),
+					selected &&
+						h( 'img', {
+							src:
+								'/v1/media/' +
+								attributes.media +
+								'/file',
+							alt: attributes.alt,
+						} )
+				)
 			);
 		},
 		save: () => null,
@@ -183,14 +242,38 @@
 				reusable: false,
 			},
 			edit: ( { attributes, setAttributes } ) =>
-				h( RichText, {
-					...useBlockProps(),
-					tagName: heading ? 'h' + attributes.level : 'p',
-					value: attributes.content,
-					allowedFormats: [ 'core/bold', 'core/italic' ],
-					placeholder: heading ? 'Heading…' : 'Start writing…',
-					onChange: ( content ) => setAttributes( { content } ),
-				} ),
+				h(
+					Fragment,
+					null,
+					heading &&
+						h(
+							InspectorControls,
+							null,
+							h(
+								PanelBody,
+								{ title: 'Settings', initialOpen: true },
+								h( RangeControl, {
+									label: 'Level',
+									value: attributes.level,
+									min: 2,
+									max: 4,
+									onChange: ( level ) => {
+										if ( level >= 2 && level <= 4 )
+											setAttributes( { level } );
+									},
+								} )
+							)
+						),
+					h( RichText, {
+						...useBlockProps(),
+						tagName: heading ? 'h' + attributes.level : 'p',
+						value: attributes.content,
+						allowedFormats: [ 'core/bold', 'core/italic' ],
+						placeholder: heading ? 'Heading…' : 'Start writing…',
+						onChange: ( content ) =>
+							setAttributes( { content } ),
+					} )
+				),
 			save: ( { attributes } ) =>
 				h( RichText.Content, {
 					tagName: heading ? 'h' + attributes.level : 'p',
@@ -204,15 +287,20 @@
 			'publish',
 			'reload',
 			'renew',
-			'paragraph',
-			'heading',
-			'image',
 			'title',
 		] )
 			$( id ).disabled =
 				busy ||
 				( ! initialized && id !== 'renew' ) ||
 				( !! pending && ! [ 'save', 'renew' ].includes( id ) );
+		$( 'list-view' ).setAttribute(
+			'aria-expanded',
+			String( listOpen )
+		);
+		$( 'sidebar-toggle' ).setAttribute(
+			'aria-expanded',
+			String( sidebarOpen )
+		);
 		$( 'editor' ).inert = busy || !! pending || ! initialized;
 		$( 'publish' ).disabled =
 			busy ||
@@ -228,8 +316,96 @@
 		dirty = true;
 		sync();
 	}
+	function statusText() {
+		if ( ! article?.published_revision ) return 'Draft';
+		if ( article.revision === article.published_revision )
+			return 'Published';
+		return 'Published · new draft';
+	}
+	function DocumentPanel() {
+		const selected = new Set( article?.terms || [] );
+		const [ checked, setChecked ] = useState( selected );
+		const toggle = ( id ) => {
+			const next = new Set( checked );
+			if ( next.has( id ) ) next.delete( id );
+			else next.add( id );
+			setChecked( next );
+		};
+		return h(
+			Fragment,
+			null,
+			h(
+				PanelBody,
+				{ title: 'Status', initialOpen: true },
+				h( 'p', null, 'Status: ' + statusText() ),
+				h(
+					'p',
+					null,
+					article?.scheduled_at
+						? 'Scheduled for ' +
+								new Date(
+									article.scheduled_at
+								).toLocaleString()
+						: 'No publication scheduled.'
+				),
+				h(
+					'div',
+					{ className: 'document-actions' },
+					h(
+						'button',
+						{
+							type: 'button',
+							onClick: () => task( doPublish ),
+						},
+						article?.published_revision
+							? 'Publish changes'
+							: 'Publish'
+					),
+					article?.published_revision &&
+						h(
+							'button',
+							{
+								type: 'button',
+								onClick: () => task( doUnpublish ),
+							},
+							'Unpublish'
+						)
+				)
+			),
+			h(
+				PanelBody,
+				{ title: 'Categories and tags', initialOpen: true },
+				termsList.length
+					? termsList.map( ( term ) =>
+							h(
+								'label',
+								{ key: term.id, className: 'term-option' },
+								h( 'input', {
+									type: 'checkbox',
+									checked: checked.has( term.id ),
+									onChange: () => toggle( term.id ),
+								} ),
+								term.name
+							)
+						)
+					: h( 'p', null, 'No categories or tags.' ),
+				h(
+					'button',
+					{
+						type: 'button',
+						onClick: () =>
+							task( () =>
+								applyTerms( Array.from( checked ) )
+							),
+					},
+					'Apply categories and tags'
+				)
+			)
+		);
+	}
 	function Editor() {
 		const [ value, setValue ] = useState( blocks );
+		const [ , setShellVersion ] = useState( 0 );
 		useEffect( () => {
 			mounted();
 		}, [] );
@@ -237,6 +413,8 @@
 			blocks = next;
 			setValue( next );
 		};
+		refreshShell = () =>
+			setShellVersion( ( version ) => version + 1 );
 		const onChange = ( next ) => {
 			setValue( next );
 			changed( next );
@@ -256,7 +434,88 @@
 					__experimentalCanUserUseUnfilteredHTML: false,
 				},
 			},
-			h( ObserveTyping, null, h( WritingFlow, null, h( BlockList ) ) )
+			h(
+				'div',
+				{ className: 'editor-layout' },
+				h(
+					'div',
+					{ className: 'editor-canvas' },
+					listOpen &&
+						h(
+							'div',
+							{
+								className: 'editor-list',
+								'aria-label': 'Block outline',
+							},
+							h( ListView )
+						),
+					h(
+						ObserveTyping,
+						null,
+						h( WritingFlow, null, h( BlockList ) )
+					)
+				),
+				sidebarOpen &&
+					h(
+						'aside',
+						{
+							className: 'editor-sidebar',
+							'aria-label': 'Editor settings',
+						},
+						h(
+							TabPanel,
+							{
+								tabs: [
+									{
+										name: 'document',
+										title: 'Document',
+									},
+									{ name: 'block', title: 'Block' },
+								],
+								initialTabName: 'document',
+							},
+							( tab ) =>
+								tab.name === 'document'
+									? h( DocumentPanel, {
+											key:
+												article?.revision ||
+												'new',
+										} )
+									: h( BlockInspector )
+						)
+					)
+			)
+		);
+	}
+	function addBlock( name ) {
+		if ( pending || busy || blocks.length >= 64 ) return;
+		const next = [ ...blocks, createBlock( name ) ];
+		update( next );
+		changed( next );
+	}
+	function Inserter() {
+		const items = [
+			[ 'Paragraph', 'core/paragraph' ],
+			[ 'Heading', 'core/heading' ],
+			[ 'Image', 'axiom/image' ],
+		];
+		return h(
+			DropdownMenu,
+			{ text: 'Add block', label: 'Toggle block inserter' },
+			( { onClose } ) =>
+				items.map( ( [ label, name ] ) =>
+					h(
+						MenuItem,
+						{
+							key: name,
+							onClick: () => {
+								addBlock( name );
+								onClose();
+							},
+						},
+						label
+					)
+				)
 		);
 	}
 	function quote( text ) {
@@ -436,22 +695,75 @@
 		$( 'title' ).value = result.title;
 		dirty = false;
 		status( 'Saved revision loaded.' );
+		if ( refreshShell ) refreshShell();
 	}
 	$( 'title' ).addEventListener( 'input', () => {
 		dirty = true;
 		sync();
 	} );
-	for ( const [ id, name ] of [
-		[ 'paragraph', 'core/paragraph' ],
-		[ 'heading', 'core/heading' ],
-		[ 'image', 'axiom/image' ],
-	] )
-		$( id ).addEventListener( 'click', () => {
-			if ( pending || blocks.length >= 64 ) return;
-			const next = [ ...blocks, createBlock( name ) ];
-			update( next );
-			changed( next );
-		} );
+	async function doPublish() {
+		if ( dirty || pending || ! article )
+			throw new Error( 'Save the current draft first.' );
+		pending = {
+			kind: 'publish',
+			path: '/v1/articles/' + article.id + '/publish',
+			method: 'POST',
+			data: {
+				expected_revision: article.revision,
+				expected_version: article.version,
+			},
+			key: identity(),
+		};
+		await commit( pending );
+	}
+	async function doUnpublish() {
+		if ( dirty || pending || ! article?.published_revision )
+			throw new Error( 'Save the current draft first.' );
+		pending = {
+			kind: 'unpublish',
+			path: '/v1/articles/' + article.id + '/unpublish',
+			method: 'POST',
+			data: {
+				expected_revision: article.revision,
+				expected_version: article.version,
+			},
+			key: identity(),
+		};
+		await commit( pending );
+	}
+	async function applyTerms( ids ) {
+		if ( dirty || pending || ! article )
+			throw new Error( 'Save the current draft first.' );
+		pending = {
+			kind: 'terms',
+			path: '/v1/platform/relationships.write',
+			method: 'POST',
+			data: {
+				expected_revision: article.revision,
+				expected_version: article.version,
+				id: article.id,
+				terms: JSON.stringify( ids ),
+			},
+			key: identity(),
+		};
+		await commit( pending );
+	}
+	$( 'list-view' ).addEventListener( 'click', () => {
+		listOpen = ! listOpen;
+		$( 'list-view' ).setAttribute(
+			'aria-expanded',
+			String( listOpen )
+		);
+		if ( refreshShell ) refreshShell();
+	} );
+	$( 'sidebar-toggle' ).addEventListener( 'click', () => {
+		sidebarOpen = ! sidebarOpen;
+		$( 'sidebar-toggle' ).setAttribute(
+			'aria-expanded',
+			String( sidebarOpen )
+		);
+		if ( refreshShell ) refreshShell();
+	} );
 	async function commit( intent ) {
 		let result;
 		try {
@@ -476,10 +788,20 @@
 		article = result;
 		dirty = false;
 		history.replaceState( null, '', '/__editor-proof?id=' + article.id );
-		if ( intent.kind === 'publish' ) status( 'Saved revision published.' );
-		else {
+		if ( intent.kind === 'publish' ) {
+			status( 'Saved revision published.' );
+			if ( refreshShell ) refreshShell();
+		} else if ( intent.kind === 'unpublish' ) {
+			status( 'Saved revision unpublished.' );
+			if ( refreshShell ) refreshShell();
+		} else {
 			await reload();
-			status( 'Draft saved with native API.' );
+			status(
+				intent.kind === 'terms'
+					? 'Categories and tags saved.'
+					: 'Draft saved with native API.'
+			);
+			if ( refreshShell ) refreshShell();
 		}
 	}
 	$( 'save' ).addEventListener( 'click', () =>
@@ -508,23 +830,7 @@
 			await commit( pending );
 		} )
 	);
-	$( 'publish' ).addEventListener( 'click', () =>
-		task( async () => {
-			if ( dirty || pending || ! article )
-				throw new Error( 'Save the current draft first.' );
-			pending = {
-				kind: 'publish',
-				path: '/v1/articles/' + article.id + '/publish',
-				method: 'POST',
-				data: {
-					expected_revision: article.revision,
-					expected_version: article.version,
-				},
-				key: identity(),
-			};
-			await commit( pending );
-		} )
-	);
+	$( 'publish' ).addEventListener( 'click', () => task( doPublish ) );
 	$( 'reload' ).addEventListener( 'click', () =>
 		task( async () => {
 			if (
@@ -574,9 +880,22 @@
 		} catch ( error ) {
 			library = [];
 		}
+		try {
+			const terms = await request(
+				'/v1/platform/terms.list',
+				'POST',
+				{}
+			);
+			termsList = terms.items.filter( ( term ) => ! term.archived );
+		} catch ( error ) {
+			termsList = [];
+		}
 		if ( ! mountedOnce ) {
 			mountedOnce = true;
 			wp.element.createRoot( $( 'editor' ) ).render( h( Editor ) );
+			wp.element
+				.createRoot( $( 'inserter' ) )
+				.render( h( Inserter ) );
 		}
 		await ready;
 		const id = new URL( location.href ).searchParams.get( 'id' );

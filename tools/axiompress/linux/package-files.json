@@ -58,6 +58,7 @@
   "tools/axiompress/media/processor.php",
   "tools/axiompress/media/run.py",
   "tools/axiompress/media/runtime.py",
+  "tools/axiompress/policy/AuditLog.php",
   "tools/axiompress/policy/ImageBinding.php",
   "tools/axiompress/policy/Package.php",
   "tools/axiompress/policy/PackageBuilder.php",

@@ -37,7 +37,7 @@ function visit( handle ) {
 			handle
 		)
 	) {
-		file = 'src/wp-includes/js/dist/vendor/' + handle + '.js';
+		file = 'src/wp-includes/js/dist/vendor/' + handle + '.min.js';
 		dependencies = [ 'react', 'moment' ].includes( handle )
 			? []
 			: [ 'react' ];
@@ -66,7 +66,7 @@ function visit( handle ) {
 		);
 		if ( modules.some( ( entry ) => entry.import !== 'dynamic' ) )
 			throw new Error( 'Static module dependency needs review' );
-		file = 'gutenberg/build/scripts/' + name + '/index.js';
+		file = 'gutenberg/build/scripts/' + name + '/index.min.js';
 	}
 	dependencies.forEach( visit );
 	const data = fs.readFileSync( path.join( root, file ) );
@@ -86,8 +86,8 @@ const result = {
 	gutenberg: pin,
 	scripts: Array.from( sources.values() ),
 	styles: [
-		'gutenberg/build/styles/components/style.css',
-		'gutenberg/build/styles/block-editor/style.css',
+		'gutenberg/build/styles/components/style.min.css',
+		'gutenberg/build/styles/block-editor/style.min.css',
 	],
 	disabled: [
 		'uploads',

@@ -160,10 +160,42 @@ const { randomBytes } = require( 'node:crypto' );
 			( await heading.textContent() ).includes( 'pasted text' ),
 			'RichText plain-text paste handler'
 		);
+		if ( fixture.populated_media && fixture.media ) {
+			await page
+				.getByRole( 'button', { name: 'Add image', exact: true } )
+				.click();
+			await page
+				.getByLabel( 'Published image', { exact: true } )
+				.selectOption( fixture.media.id );
+			await page
+				.getByLabel( 'Alternative text', { exact: true } )
+				.fill( 'Proof image' );
+			check(
+				( await page
+					.locator( '#editor img[src*="' + fixture.media.id + '"]' )
+					.count() ) === 1,
+				'Prepared image preview in proof editor'
+			);
+		}
 		await page
 			.getByRole( 'button', { name: 'Save draft', exact: true } )
 			.click();
 		await notice( 'Draft saved with native API.' );
+		if ( fixture.populated_media && fixture.media ) {
+			stored = await (
+				await context.request.get(
+					fixture.origin + '/v1/articles/' + id
+				)
+			).json();
+			check(
+				stored.text.includes( 'wp:axiom/image' ) &&
+					stored.text.includes(
+						'"media":"' + fixture.media.id + '"'
+					) &&
+					stored.text.includes( '"alt":"Proof image"' ),
+				'Prepared image persists in native document'
+			);
+		}
 		await page.reload();
 		await notice( 'Saved revision loaded.' );
 		check(
@@ -171,6 +203,17 @@ const { randomBytes } = require( 'node:crypto' );
 				( await heading.locator( 'em' ).count() ) === 1,
 			'Heading formatting and paste survive native reload'
 		);
+		if ( fixture.populated_media && fixture.media ) {
+			check(
+				( await page
+					.getByLabel( 'Published image', { exact: true } )
+					.inputValue() ) === fixture.media.id &&
+					( await page
+						.getByLabel( 'Alternative text', { exact: true } )
+						.inputValue() ) === 'Proof image',
+				'Image selection survives native reload'
+			);
+		}
 		await page
 			.getByRole( 'button', {
 				name: 'Publish saved revision',

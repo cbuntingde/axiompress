@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use AxiomPress\Policy\AuditLog;
 use AxiomPress\Policy\ImageBinding;
 use AxiomPress\Policy\Package;
 use AxiomPress\Policy\PolicyStore;
@@ -182,6 +183,153 @@ try {
     $check($convertedReader->generation('legacy', 'site:1', $image) === 2);
     $legacy = new PDO('sqlite:' . $directory . '/legacy.sqlite');
     $check($legacy->query('PRAGMA journal_mode')->fetchColumn() === 'delete');
+    $auditDir = '/tmp/axiompress-audit-test-' . bin2hex(random_bytes(12));
+    mkdir($auditDir, 0700);
+    $auditPath = $auditDir . '/audit.jsonl';
+    $reject(fn() => AuditLog::open($auditDir . '/missing/audit.jsonl'));
+    $reject(fn() => AuditLog::open('relative/audit.jsonl'));
+    $reject(fn() => AuditLog::open($auditPath, 1000));
+    $log = AuditLog::open($auditPath);
+    $context = array('action' => 'approve-read', 'installation' => 'plugin-a', 'site' => 'site:1',
+        'expected_generation' => 7, 'image' => $image, 'grants' => 'content.read');
+    $check($log->record(static fn() => 8, $context) === 8);
+    $lines = explode("\n", trim(file_get_contents($auditPath)));
+    $check(count($lines) === 1);
+    $entry = json_decode($lines[0], true, 8, JSON_THROW_ON_ERROR);
+    $check($entry['outcome'] === 'applied' && $entry['result_generation'] === 8
+        && $entry['action'] === 'approve-read' && $entry['installation'] === 'plugin-a'
+        && is_int($entry['uid']));
+    $check(preg_match('/\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\z/', $entry['ts']) === 1);
+    $check((fileperms($auditPath) & 0777) === 0600);
+    try {
+        $log->record(static function (): void {
+            throw new RuntimeException('Stale or missing installation generation.');
+        }, $context);
+        throw new LogicException('Rejected mutation was not reported.');
+    } catch (RuntimeException $error) {
+        $check($error->getMessage() === 'Stale or missing installation generation.');
+    }
+    $lines = explode("\n", trim(file_get_contents($auditPath)));
+    $check(count($lines) === 2);
+    $denied = json_decode($lines[1], true, 8, JSON_THROW_ON_ERROR);
+    $check($denied['outcome'] === 'rejected' && $denied['result_generation'] === null
+        && $denied['error'] === 'Stale or missing installation generation.');
+    $ran = false;
+    $reject(function () use ($log, $context, &$ran): void {
+        $log->record(static function () use (&$ran): int {
+            $ran = true;
+            return 9;
+        }, array('action' => 'revoke') + $context);
+    });
+    $check($ran === false);
+    $reject(fn() => $log->append(array('nested' => array('x'))));
+    $reject(fn() => $log->append(array('big' => str_repeat('x', 5000))));
+    $lines = explode("\n", trim(file_get_contents($auditPath)));
+    $check(count($lines) === 2);
+    $reject(fn() => AuditLog::open($auditPath, 4096));
+    $reject(fn() => AuditLog::open($auditPath, 8192, -1));
+    $reject(fn() => AuditLog::open($auditPath, 8192, 10001));
+    $capped = AuditLog::open($auditDir . '/capped.jsonl', 8192);
+    $capped->append(array('seed' => 'x'));
+    $tight = AuditLog::open(
+        $auditDir . '/capped.jsonl',
+        filesize($auditDir . '/capped.jsonl') + AuditLog::MAX_RECORD_BYTES,
+        0
+    );
+    try {
+        $tight->record(static fn() => 1, $context);
+        throw new LogicException('Full audit spool accepted another record.');
+    } catch (RuntimeException $error) {
+        $check($error->getMessage() === 'Audit spool capacity reached; archive the spool to resume.');
+    }
+    $rotating = AuditLog::open($auditDir . '/rotating.jsonl', 5000, 2);
+    $sequence = 0;
+    for ($attempt = 0; $attempt < 20; $attempt++) {
+        $sequence++;
+        $check($rotating->record(static fn() => $sequence, $context) === $sequence);
+    }
+    $archives = array_values(array_filter(
+        scandir($auditDir),
+        static fn(string $name): bool => (bool) preg_match('/\Arotating\.jsonl\.\d{14}\.\d{6}(\.\d+)?\z/', $name)
+    ));
+    sort($archives);
+    $check(count($archives) === 2);
+    $ordered = array();
+    foreach (array_merge($archives, array('rotating.jsonl')) as $name) {
+        foreach (explode("\n", trim(file_get_contents($auditDir . '/' . $name))) as $line) {
+            $ordered[] = json_decode($line, true, 8, JSON_THROW_ON_ERROR)['result_generation'];
+        }
+    }
+    $check($ordered === range($ordered[0], 20) && $ordered[0] > 1);
+    $check(count($ordered) === count(array_unique($ordered)));
+    $check((fileperms($auditDir . '/' . $archives[0]) & 0777) === 0600);
+    chmod($auditPath, 0644);
+    $reject(fn() => $log->append(array('late' => 'write')));
+    chmod($auditPath, 0600);
+    $link = $auditDir . '/linked.jsonl';
+    symlink($auditDir . '/elsewhere.jsonl', $link);
+    $reject(fn() => AuditLog::open($link));
+    unlink($link);
+    try {
+        $log->record(static function (): void {
+            throw new PDOException('SQLSTATE[HY000]: no such table: axiom_content.articles');
+        }, $context);
+        throw new LogicException('Database failure was not reported.');
+    } catch (PDOException $error) {
+        $check(true);
+    }
+    $lines = explode("\n", trim(file_get_contents($auditPath)));
+    $entry = json_decode(end($lines), true, 8, JSON_THROW_ON_ERROR);
+    $check($entry['error'] === 'database_unavailable');
+    $cli = static function (string ...$arguments): array {
+        $command = implode(' ', array_map('escapeshellarg', array_merge(
+            array(PHP_BINARY, __DIR__ . '/manage.php'),
+            $arguments
+        )));
+        $output = array();
+        $status = 0;
+        exec($command . ' 2>&1', $output, $status);
+        return array($status, implode("\n", $output));
+    };
+    putenv('AXIOM_POLICY_FILE=' . $directory . '/policy.sqlite');
+    putenv('AXIOM_POLICY_AUDIT_FILE=' . $directory . '/cli-audit.jsonl');
+    [$status, $output] = $cli('approve-read', 'plugin-a', 'site:1', '7', $image);
+    $check($status === 0 && json_decode($output, true)['generation'] === 8);
+    $auditLines = explode("\n", trim(file_get_contents($directory . '/cli-audit.jsonl')));
+    $check(count($auditLines) === 1 && json_decode($auditLines[0], true)['result_generation'] === 8);
+    [$status] = $cli('approve-read', 'plugin-a', 'site:1', '7', $image);
+    $check($status !== 0);
+    $auditLines = explode("\n", trim(file_get_contents($directory . '/cli-audit.jsonl')));
+    $check(count($auditLines) === 2 && json_decode($auditLines[1], true)['outcome'] === 'rejected');
+    [$status] = $cli('disable', 'plugin-a', 'site:1', '8');
+    $check($status === 0);
+    $auditLines = explode("\n", trim(file_get_contents($directory . '/cli-audit.jsonl')));
+    $check(count($auditLines) === 3 && json_decode(end($auditLines), true)['result_generation'] === 9);
+    putenv('AXIOM_POLICY_AUDIT_FILE=' . $directory . '/cli-rotating.jsonl');
+    putenv('AXIOM_POLICY_AUDIT_MAX_BYTES=5000');
+    putenv('AXIOM_POLICY_AUDIT_MAX_ARCHIVES=2');
+    for ($generation = 9; $generation < 17; $generation++) {
+        [$status] = $cli('approve-read', 'plugin-a', 'site:1', (string) $generation, $image);
+        $check($status === 0);
+    }
+    $rotated = array_values(array_filter(
+        scandir($directory),
+        static fn(string $name): bool => (bool) preg_match('/\Acli-rotating\.jsonl\.\d{14}\.\d{6}(\.\d+)?\z/', $name)
+    ));
+    sort($rotated);
+    $check(count($rotated) === 1);
+    $tail = array();
+    foreach (array_merge($rotated, array('cli-rotating.jsonl')) as $name) {
+        foreach (explode("\n", trim(file_get_contents($directory . '/' . $name))) as $line) {
+            $tail[] = json_decode($line, true, 8, JSON_THROW_ON_ERROR)['result_generation'];
+        }
+    }
+    $check($tail === range(10, 17));
+    $check(count($tail) === count(array_unique($tail)));
+    putenv('AXIOM_POLICY_AUDIT_MAX_BYTES');
+    putenv('AXIOM_POLICY_AUDIT_MAX_ARCHIVES');
+    putenv('AXIOM_POLICY_FILE');
+    putenv('AXIOM_POLICY_AUDIT_FILE');
     echo "PASS: {$checks} package/policy checks\n";
 } finally {
     unset($store, $writer, $reader, $reopened, $registry, $unknown, $legacy, $converted, $convertedReader);
@@ -192,12 +340,31 @@ try {
     }
     foreach (
         array('policy.sqlite', 'policy.sqlite-wal', 'policy.sqlite-shm', 'unknown.sqlite',
-        'legacy.sqlite', 'legacy.sqlite-wal', 'legacy.sqlite-shm') as $name
+        'legacy.sqlite', 'legacy.sqlite-wal', 'legacy.sqlite-shm', 'cli-audit.jsonl',
+        'cli-rotating.jsonl') as $name
     ) {
         if (is_file($directory . '/' . $name)) {
             unlink($directory . '/' . $name);
         }
     }
+    foreach (scandir($directory) as $name) {
+        if (str_starts_with($name, 'cli-rotating.jsonl.')) {
+            unlink($directory . '/' . $name);
+        }
+    }
     rmdir($directory . '/package');
     rmdir($directory);
+    if (isset($auditDir) && is_dir($auditDir)) {
+        foreach (array('audit.jsonl', 'capped.jsonl', 'rotating.jsonl') as $name) {
+            if (is_file($auditDir . '/' . $name)) {
+                unlink($auditDir . '/' . $name);
+            }
+        }
+        foreach (scandir($auditDir) as $name) {
+            if (str_starts_with($name, 'rotating.jsonl.')) {
+                unlink($auditDir . '/' . $name);
+            }
+        }
+        rmdir($auditDir);
+    }
 }

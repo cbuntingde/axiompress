@@ -18,9 +18,10 @@
 			'WordPress transport is disabled in the native proof.'
 		);
 	} );
-	const allowed = [ 'core/paragraph', 'core/heading' ];
+	const allowed = [ 'core/paragraph', 'core/heading', 'axiom/image' ];
 	let initialized = false,
 		mountedOnce = false;
+	let library = [];
 	let mounted;
 	const ready = new Promise( ( resolve ) => {
 		mounted = resolve;
@@ -100,6 +101,72 @@
 			},
 		} );
 	}
+	registerBlockType( 'axiom/image', {
+		apiVersion: 3,
+		title: 'Image',
+		category: 'media',
+		attributes: {
+			media: { type: 'string', default: '' },
+			alt: { type: 'string', default: '' },
+		},
+		supports: {
+			html: false,
+			customClassName: false,
+			className: false,
+			reusable: false,
+		},
+		edit: ( { attributes, setAttributes } ) => {
+			const selected = library.find(
+				( image ) => image.id === attributes.media
+			);
+			return h(
+				'div',
+				{ ...useBlockProps() },
+				h(
+					'label',
+					null,
+					'Published image',
+					h(
+						'select',
+						{
+							'aria-label': 'Published image',
+							value: attributes.media,
+							onChange: ( event ) =>
+								setAttributes( {
+									media: event.target.value,
+								} ),
+						},
+						h(
+							'option',
+							{ value: '' },
+							'Select a published image'
+						),
+						library.map( ( image ) =>
+							h(
+								'option',
+								{ key: image.id, value: image.id },
+								image.name
+							)
+						)
+					)
+				),
+				h( 'input', {
+					'aria-label': 'Alternative text',
+					value: attributes.alt,
+					maxLength: 512,
+					placeholder: 'Describe this image',
+					onChange: ( event ) =>
+						setAttributes( { alt: event.target.value } ),
+				} ),
+				selected &&
+					h( 'img', {
+						src: '/v1/media/' + attributes.media + '/file',
+						alt: attributes.alt,
+					} )
+			);
+		},
+		save: () => null,
+	} );
 	for ( const heading of [ false, true ] ) {
 		registerBlockType( heading ? 'core/heading' : 'core/paragraph', {
 			apiVersion: 3,
@@ -139,6 +206,7 @@
 			'renew',
 			'paragraph',
 			'heading',
+			'image',
 			'title',
 		] )
 			$( id ).disabled =
@@ -191,6 +259,22 @@
 			h( ObserveTyping, null, h( WritingFlow, null, h( BlockList ) ) )
 		);
 	}
+	function quote( text ) {
+		return JSON.stringify( text )
+			.replace( /\\u2028|\\u2029/g, ( sequence ) =>
+				String.fromCharCode( parseInt( sequence.slice( 2 ), 16 ) )
+			)
+			.replace(
+				/[<>]/g,
+				( character ) =>
+					'\\u' +
+					character
+						.charCodeAt( 0 )
+						.toString( 16 )
+						.toUpperCase()
+						.padStart( 4, '0' )
+			);
+	}
 	function serialize() {
 		if ( blocks.length > 64 ) throw new Error( 'At most 64 blocks.' );
 		return blocks
@@ -200,6 +284,24 @@
 					block.innerBlocks.length
 				)
 					throw new Error( 'Unsupported block.' );
+				if ( block.name === 'axiom/image' ) {
+					if (
+						! /^[a-f0-9]{32}$/.test( block.attributes.media ) ||
+						typeof block.attributes.alt !== 'string' ||
+						new TextEncoder().encode( block.attributes.alt )
+							.length > 512
+					)
+						throw new Error(
+							'Image block needs a prepared media item.'
+						);
+					return (
+						'<!-- wp:axiom/image {"media":"' +
+						block.attributes.media +
+						'","alt":' +
+						quote( block.attributes.alt ) +
+						'} /-->'
+					);
+				}
 				const heading = block.name === 'core/heading';
 				const tag = heading ? 'h' + block.attributes.level : 'p';
 				const attributes = heading
@@ -232,6 +334,30 @@
 		for ( const block of parsed ) {
 			if ( block.blockName === null && /^\s*$/.test( block.innerHTML ) )
 				continue;
+			if ( block.blockName === 'axiom/image' ) {
+				const names = Object.keys( block.attrs )
+					.sort()
+					.join( ',' );
+				if (
+					names !== 'alt,media' ||
+					block.innerBlocks.length ||
+					block.innerHTML !== '' ||
+					! /^[a-f0-9]{32}$/.test( block.attrs.media ) ||
+					typeof block.attrs.alt !== 'string' ||
+					new TextEncoder().encode( block.attrs.alt ).length >
+						512
+				)
+					throw new Error(
+						'Unsupported document retained on the server; this proof cannot edit it.'
+					);
+				next.push(
+					createBlock( 'axiom/image', {
+						media: block.attrs.media,
+						alt: block.attrs.alt,
+					} )
+				);
+				continue;
+			}
 			const heading = block.blockName === 'core/heading';
 			const keys = Object.keys( block.attrs ).sort().join( ',' );
 			if (
@@ -318,6 +444,7 @@
 	for ( const [ id, name ] of [
 		[ 'paragraph', 'core/paragraph' ],
 		[ 'heading', 'core/heading' ],
+		[ 'image', 'axiom/image' ],
 	] )
 		$( id ).addEventListener( 'click', () => {
 			if ( pending || blocks.length >= 64 ) return;
@@ -437,6 +564,16 @@
 	} );
 	async function initialize() {
 		actor = await request( '/v1/session' );
+		try {
+			const listed = await request( '/v1/platform/media.list', 'POST', {
+				cursor: '',
+			} );
+			library = listed.items.filter(
+				( image ) => image.status === 'ready' && image.public
+			);
+		} catch ( error ) {
+			library = [];
+		}
 		if ( ! mountedOnce ) {
 			mountedOnce = true;
 			wp.element.createRoot( $( 'editor' ) ).render( h( Editor ) );

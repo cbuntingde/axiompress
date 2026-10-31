@@ -6,6 +6,8 @@ Canonical project domain: [axiompress.dev](https://axiompress.dev).
 
 ## Project status
 
+See [current development status and where to resume](STATUS.md) for the implementation baseline, verification limits and next work.
+
 **In progress; not ready for production.** Basic account access, article editing, publication and isolated plugin execution have passed local tests. The full administration interface, editor features, data migration and production deployment are not complete. The existing WordPress site remains available for comparison as work continues.
 
 Implemented components include:
@@ -29,7 +31,7 @@ Implemented components include:
 
 PostgreSQL 18 stores AxiomPress data. Public reads can use PostgreSQL articles through an explicit configuration setting; the default still reads the existing WordPress MySQL database for comparison. Plugin execution and image processing have been tested with gVisor on a dedicated WSL2 Linux system. Runc is used only for development tests. Independent security and deployment review are still required before production use.
 
-Plugin execution and image-job processing can now run without Docker. The Linux extension-service installer uses a dedicated core account, a service-owned cgroup subtree, read-only code and policy, and persistent recovery state. Local systemd tests cover package integrity, guest restrictions, normal restart, forced termination and refusal of missing isolation controls. Docker remains available for development and testing. This is not a complete production CMS installer: PHP-FPM/PostgreSQL provisioning, image-job service scheduling, signed distribution and updates, independent security review and real VPS acceptance remain unfinished.
+Plugin execution and image-job processing can now run without Docker. The Linux extension-service installer uses a dedicated core account, a service-owned cgroup subtree, read-only code and policy, and persistent recovery state. Local systemd tests cover package integrity, guest restrictions, normal restart, forced termination and refusal of missing isolation controls. Image-job scheduling has an installer for an inactive service and timer that was validated against direct execution and database jobs on the dedicated Linux system; automatic runtime provisioning and production acceptance remain unfinished. Docker remains available for development and testing. This is not a complete production CMS installer: PHP-FPM/PostgreSQL provisioning, signed distribution and updates, independent security review and real VPS acceptance remain unfinished.
 
 The [account and publishing tests](tools/axiompress/database/PHASE3_ACCEPTANCE.md) cover authentication, article changes, public reads, database failures and publication changes during plugin execution. Additional tests run plugin and image processing under gVisor and exercise administration and Gutenberg editing in Chrome. Passing these tests does not establish complete WordPress functionality or production readiness.
 

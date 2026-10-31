@@ -12,10 +12,12 @@ The database belongs in a private operator-owned directory. SQLite uses DELETE r
 
 The live runner creates and explicitly approves a uniquely named synthetic installation in the axiompress-policy-prototype volume. setup-live.php requires AXIOM_APPROVE_LIVE_TEST=1. manage.php provides operator-only describe, disable and approve-read commands using expected generations. It needs the policy volume but no Docker socket. No public authorization endpoint is exposed.
 
+Set AXIOM_POLICY_AUDIT_FILE to append one JSON record per approve-read or disable attempt. Each record carries timestamp, operator identity, installation, site, expected and resulting generations, image, grants, outcome and an operator-visible diagnostic; database internals are never recorded. Records are size-bounded, writes are locked and flushed, and a mutation is refused before it runs when the spool cannot hold another maximum-size record. A full spool rotates to a microsecond-timestamped archive within a count budget (AXIOM_POLICY_AUDIT_MAX_BYTES, AXIOM_POLICY_AUDIT_MAX_ARCHIVES, 30 by default; 0 disables rotation and refuses instead), so operations continue without losing records and pruning never takes the newest archive. After any operator crash compare the spool and archives against describe output. Retention, deletion and read access control remain deployment work.
+
 Run the complete prototype with tools/axiompress/supervisor/run-live-checks.ps1. The policy unit suite runs in the Linux supervisor image (PDO SQLite required):
 
 ```powershell
 docker run --rm --network=none --read-only --tmpfs=/tmp:rw,size=32m --entrypoint php axiompress-supervisor:prototype /app/policy/test.php
 ```
 
-The suite covers 64 package, image-binding, persistence, denial, generation, rollback and concurrency cases. runtime-test.php additionally verifies actual worker denial during a read, disabled admission, success after reapproval with a new generation, and empty/Unicode text. Shared single-host worker admission and operator crash recovery are documented in ../supervisor/README.md. Publisher authentication, stronger runtime isolation and production recovery readiness remain separate gates.
+The suite covers 133 package, image-binding, persistence, denial, generation, rollback, concurrency, operator audit and rotation cases. runtime-test.php additionally verifies actual worker denial during a read, disabled admission, success after reapproval with a new generation, and empty/Unicode text. Shared single-host worker admission and operator crash recovery are documented in ../supervisor/README.md. Publisher authentication, stronger runtime isolation and production recovery readiness remain separate gates.

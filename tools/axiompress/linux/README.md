@@ -1,6 +1,6 @@
 # Linux extension-service installation
 
-These tools package reviewed local AxiomPress code and install a systemd unit for the direct gVisor extension service. Installation never enables or starts the service and never replaces an existing unit. This is not a complete CMS installer: PHP-FPM, PostgreSQL, image-job scheduling, signed release distribution and production-host acceptance remain separate work.
+These tools package reviewed local AxiomPress code and install a systemd unit for the direct gVisor extension service. Installation never enables or starts the service and never replaces an existing unit. This is not a complete CMS installer: PHP-FPM, PostgreSQL, complete scheduled image-processing integration, signed release distribution and production-host acceptance remain separate work.
 
 ## Requirements
 
@@ -79,9 +79,11 @@ Updates require a separately reviewed release and an explicit deployment procedu
 
 ## Schedule image processing
 
-For an already provisioned dedicated direct media runtime, install an inactive service and timer with `media-schedule.py --instance axiompress-media --config /etc/axiompress/media.json`. The media configuration follows the runtime guide and must use `backend: "direct"`. Installation validates the controller and both unit definitions, refuses existing units and leaves the timer disabled. An operator can start scheduling with `systemctl enable --now axiompress-media.timer` after validating the runtime and database connection.
+For an already provisioned dedicated direct media runtime, install an inactive service and timer with `media-schedule.py --instance axiompress-media --config /etc/axiompress/media.json`. The media configuration follows the runtime guide and must use `backend: "direct"`, with no Docker image or network fields. Provision three separate private root-owned directories for the batch intent state, the runtime state and the artifact store, plus a dedicated delegated cgroup parent with CPU, memory and process controllers enabled. Keep the database password file, certificate authority file, core bootstrap and PHP executable as root-owned files outside those worker directories. Database credentials reach only the host PostgreSQL controller; the gVisor decoder receives only bounded image bytes.
 
-The timer runs a maximum of four jobs per batch, 15 seconds after the previous batch finishes. `--interval` accepts 5–3600 seconds. A service instance does not overlap itself. Unresolved worker intent prevents another database claim and requires operator recovery. This scheduler requires separately provisioned persistent runtime/cgroup state; it does not yet automate media-runtime delegation or establish restart acceptance on a production host.
+Installation validates required fields, directory separation, delegated controllers, credential placement, the host controller and both unit definitions. It refuses existing units and leaves the timer disabled. An operator can start scheduling with `systemctl enable --now axiompress-media.timer` after validating the runtime and database connection.
+
+The timer runs a maximum of four jobs per batch, 15 seconds after the previous batch finishes. `--interval` accepts 5–3600 seconds. A service instance does not overlap itself. The batch controller has a 180-second start limit and a 30-second stop limit; service cgroup termination applies to the controller process. Workers live in the dedicated runtime cgroup, so an interrupted batch retains its intent file and the operator must reconcile the runtime with recovery checks and confirm no workers remain before the next claim. A replacement controller respects a live lease, and an expired lease loses completion authority. This scheduler does not automatically create the media runtime delegation and does not establish restart acceptance on a production host.
 
 ## Local installation tests
 

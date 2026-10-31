@@ -320,8 +320,22 @@ def verify(root, directory, network, docker, containers, name, sql, plugin=None,
             node = shutil.which('node.exe')
             script = subprocess.run(['wslpath', '-w', str(root / 'tests/axiompress/gutenberg-browser-test.cjs')],
                                     capture_output=True, text=True, check=True, timeout=10).stdout.strip()
-            result = subprocess.run([node, script], input=json.dumps({'origin': origin, 'username': 'alice',
-                'password': (directory / 'user-password').read_text()}), capture_output=True, text=True, timeout=180)
+            editor_fixture = {'origin': origin, 'username': 'alice',
+                              'password': (directory / 'user-password').read_text(),
+                              'populated_media': media is not None}
+            if media is not None:
+                status, _, proof_upload = request('POST', '/v1/media', {'name': 'proof-image', 'mime': 'image/png',
+                    'data': media.source('image/png')}, cookie=cookie, csrf=csrf, key=secrets.token_hex(32))
+                check(status == 202, 'Editor proof image enters quarantine')
+                check(media.process()['ready'] == 1, 'Editor proof image is prepared')
+                proof_path = '/v1/media/' + proof_upload['id']
+                proof_info = request('GET', proof_path, cookie=cookie)[2]
+                check(request('POST', proof_path + '/publish', {'expected_version': proof_info['version']},
+                              cookie=cookie, csrf=csrf, key=secrets.token_hex(32))[0] == 200,
+                      'Editor proof image is public')
+                editor_fixture['media'] = {'id': proof_upload['id'], 'name': 'proof-image'}
+            result = subprocess.run([node, script], input=json.dumps(editor_fixture),
+                                    capture_output=True, text=True, timeout=180)
             if result.returncode:
                 raise RuntimeError('Gutenberg acceptance failed: ' + result.stderr[-3000:])
             editor_report = json.loads(result.stdout)

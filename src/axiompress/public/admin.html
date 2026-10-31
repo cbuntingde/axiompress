@@ -52,9 +52,14 @@
 				<nav>
 					<button
 						type="button"
-						data-view="articles"
+						data-view="dashboard"
 						aria-current="page"
 					>
+						<svg aria-hidden="true" viewBox="0 0 24 24">
+							<path d="M4 4h7v7H4zM13 4h7v4h-7zM13 11h7v9h-7zM4 14h7v6H4z" /></svg
+						>Dashboard
+					</button>
+					<button type="button" data-view="articles">
 						<svg aria-hidden="true" viewBox="0 0 24 24">
 							<path
 								d="M5 3h10l4 4v14H5zM14 3v5h5M8 12h8M8 16h6"
@@ -126,8 +131,46 @@
 				</div>
 				<main id="main" tabindex="-1">
 					<section
+						id="dashboard-view"
+						aria-labelledby="dashboard-title"
+					>
+						<div class="section-heading">
+							<div>
+								<h1 id="dashboard-title">Dashboard</h1>
+								<p>What is happening on your site.</p>
+							</div>
+							<button
+								type="button"
+								id="new-article-top"
+								class="primary"
+							>
+								New article
+							</button>
+						</div>
+						<div class="dashboard-columns">
+							<section
+								class="dashboard-panel"
+								aria-labelledby="glance-title"
+							>
+								<h2 id="glance-title">At a glance</h2>
+								<div id="glance-list"></div>
+							</section>
+							<section
+								class="dashboard-panel"
+								aria-labelledby="recent-title"
+							>
+								<h2 id="recent-title">Recently updated</h2>
+								<div
+									id="recent-list"
+									class="article-list"
+								></div>
+							</section>
+						</div>
+					</section>
+					<section
 						id="articles-view"
 						aria-labelledby="articles-title"
+						hidden
 					>
 						<div class="section-heading">
 							<div>
@@ -142,6 +185,25 @@
 								New article
 							</button>
 						</div>
+						<div
+							id="article-filters"
+							class="filter-tabs"
+							role="group"
+							aria-label="Filter articles by status"
+						></div>
+						<form id="article-search" class="search-row" role="search">
+							<label for="search-articles" class="sr-only"
+								>Search articles by title</label
+							><input
+								id="search-articles"
+								type="search"
+								maxlength="64"
+								placeholder="Search articles…"
+								autocomplete="off"
+							/><button type="submit" class="secondary">
+								Search
+							</button>
+						</form>
 						<div
 							id="articles-list"
 							class="article-list"

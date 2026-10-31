@@ -431,6 +431,105 @@ main:focus {
 	background: #f7efdb;
 	color: #6d5419;
 }
+.article-main {
+	min-width: 0;
+	flex: 1;
+}
+.article-side {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	flex: none;
+}
+.article-meta {
+	font-size: 12px;
+	color: var(--muted);
+	margin: 6px 0 0;
+}
+.row-actions {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	font-size: 13px;
+}
+.row-actions .text-button {
+	min-height: 0;
+}
+.filter-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 18px;
+	margin-bottom: 18px;
+}
+.filter-tab {
+	border: 0;
+	background: none;
+	padding: 4px 2px;
+	min-height: 0;
+	font-weight: 500;
+	color: var(--accent);
+}
+.filter-tab:hover {
+	background: none;
+	border-color: transparent;
+	text-decoration: underline;
+}
+.filter-tab[aria-current="page"] {
+	color: var(--ink);
+	font-weight: 700;
+	cursor: default;
+	text-decoration: none;
+}
+.search-row {
+	display: flex;
+	gap: 10px;
+	align-items: center;
+	margin-bottom: 26px;
+}
+.search-row input {
+	max-width: 320px;
+}
+.search-row button {
+	flex: none;
+}
+.dashboard-columns {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+	gap: 24px;
+	align-items: start;
+}
+.dashboard-panel {
+	background: #fff;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	padding: 26px;
+}
+.dashboard-panel h2 {
+	font-size: 18px;
+	margin-bottom: 14px;
+}
+.dashboard-panel .article-list {
+	margin-bottom: 0;
+}
+.glance {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: grid;
+	gap: 12px;
+}
+.glance button {
+	border: 0;
+	background: none;
+	padding: 0;
+	min-height: 0;
+	font-weight: 500;
+	color: var(--accent);
+}
+.glance button:hover {
+	background: none;
+	text-decoration: underline;
+}
 .empty-state {
 	padding: 64px 28px;
 	background: #fff;
@@ -850,6 +949,7 @@ body.busy button:not(#retry-action) {
 		grid-column: 1/-1;
 		grid-row: 2;
 		flex-direction: row;
+		flex-wrap: wrap;
 		gap: 6px;
 	}
 	.navigation nav button {
@@ -897,6 +997,9 @@ body.busy button:not(#retry-action) {
 	}
 	.section-heading {
 		align-items: start;
+	}
+	.dashboard-columns {
+		grid-template-columns: minmax(0, 1fr);
 	}
 	.notice {
 		margin: 18px 20px 0;

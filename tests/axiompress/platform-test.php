@@ -32,10 +32,22 @@ $token = bin2hex(random_bytes(32));
 $store->create(1, $hash, $token, '');
 $key = static fn(): string => bin2hex(random_bytes(32));
 $command = static fn(string $op, array $args = array()): array => $store->platform($token, $op, $args, $key());
-$check(isset($command('articles.list', array('cursor' => ''))['items']), 'Native bounded article query');
+$listed = $command('articles.list', array('cursor' => '', 'q' => '', 'status' => ''));
+$check(isset($listed['items']), 'Native bounded article query');
 $check(
-    ($command('articles.list', array('cursor' => '0'))['error'] ?? '') === 'invalid_request',
+    ($command('articles.list', array('cursor' => '0', 'q' => '', 'status' => ''))['error'] ?? '')
+        === 'invalid_request',
     'Canonical list cursor'
+);
+$check(
+    ($command('articles.list', array('cursor' => '', 'q' => '', 'status' => 'archived'))['error'] ?? '')
+        === 'invalid_request',
+    'List status is a closed set'
+);
+$check(
+    ($command('articles.list', array('cursor' => '', 'q' => str_repeat('x', 65), 'status' => ''))['error'] ?? '')
+        === 'invalid_request',
+    'List search stays bounded'
 );
 $settings = $command('settings.read');
 $fields = array('expected_version' => $settings['version'],
@@ -93,6 +105,67 @@ $check(
 );
 $query = $admin->prepare("UPDATE axiom_media.assets SET status='failed',source=NULL WHERE id=?");
 $query->execute(array($image['id']));
+$list = static fn(string $status, string $q = ''): array =>
+    $command('articles.list', array('cursor' => '', 'q' => $q, 'status' => $status));
+$all = $list('')['items'];
+$check(count($all) > 0, 'Unfiltered list returns drafts and published');
+$check(
+    array_all($all, static fn(array $row): bool => !array_diff_key(array_flip(array(
+        'id', 'status', 'title', 'updated_at', 'scheduled_at', 'schedule_status', 'terms',
+    )), $row) && is_array($row['terms'])),
+    'List rows carry status, schedule and taxonomy shape'
+);
+$publishedOnly = $list('published')['items'];
+$check(
+    count($publishedOnly) > 0
+        && array_all($publishedOnly, static fn(array $row): bool => $row['status'] === 'published'),
+    'Status filter keeps published'
+);
+$tagged = array_values(array_filter(
+    $publishedOnly,
+    static fn(array $row): bool => $row['title'] === 'Tagged article'
+));
+$check(
+    count($tagged) === 1
+        && $tagged[0]['terms'] === array(array('kind' => 'category', 'name' => 'News')),
+    'List rows carry the revision taxonomy snapshot'
+);
+$draftOnly = $list('draft')['items'];
+$check(
+    count($draftOnly) > 0
+        && array_all($draftOnly, static fn(array $row): bool => $row['status'] === 'draft'),
+    'Status filter keeps drafts'
+);
+$illustrated = array_values(array_filter(
+    $draftOnly,
+    static fn(array $row): bool => $row['title'] === 'Images'
+));
+$check(
+    count($illustrated) === 1 && $illustrated[0]['terms'] === array(),
+    'Draft rows without taxonomy report no terms'
+);
+$check(
+    array_all($list('scheduled')['items'], static fn(array $row): bool => $row['status'] === 'draft'
+        && $row['schedule_status'] === 'pending'),
+    'Schedule filter keeps drafts with pending schedules'
+);
+$searched = $list('', 'tagged')['items'];
+$check(
+    count($searched) > 0 && array_all(
+        $searched,
+        static fn(array $row): bool => stripos($row['title'], 'tagged') !== false
+    ),
+    'Title search matches case-insensitively'
+);
+$check($list('', 'no such article title')['items'] === array(), 'Title search reports no match');
+$overview = $command('overview.read');
+$check(
+    is_int($overview['draft']) && $overview['draft'] >= 1 && is_int($overview['published'])
+        && $overview['published'] >= 1 && is_int($overview['scheduled']) && $overview['scheduled'] >= 0
+        && is_int($overview['media']) && $overview['media'] >= 1 && is_int($overview['terms'])
+        && $overview['terms'] >= 1,
+    'Workspace overview counts visible content'
+);
 $archived = $command('terms.archive', array('id' => $term['id'], 'expected_version' => '1'));
 $check($archived['version'] === '2' && $command('terms.list')['items'][0]['archived'], 'Archive preserves history');
 $check(
@@ -103,7 +176,7 @@ $check(
 $admin->exec("UPDATE axiom_identity.memberships SET role='author' WHERE site_id=1 AND user_id=1");
 $check(($command('terms.write', array('id' => '', 'kind' => 'tag', 'name' => 'X', 'slug' => 'x',
     'expected_version' => '0'))['error'] ?? '') === 'forbidden', 'Author cannot create global taxonomy');
-$mine = $command('articles.list', array('cursor' => ''))['items'];
+$mine = $command('articles.list', array('cursor' => '', 'q' => '', 'status' => ''))['items'];
 $check(count($mine) > 0, 'Author can browse own work');
 $check(
     ($command('revisions.list', array('id' => '999999999999999999'))['error'] ?? '') === 'not_found',

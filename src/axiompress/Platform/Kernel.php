@@ -13,7 +13,8 @@ use JsonException;
 final readonly class Kernel
 {
     public const FIELDS = array(
-        'articles.list' => array('cursor'), 'media.list' => array('cursor'),
+        'articles.list' => array('cursor', 'q', 'status'), 'media.list' => array('cursor'),
+        'overview.read' => array(),
         'revisions.list' => array('id'), 'settings.read' => array(), 'terms.list' => array(),
         'settings.write' => array('expected_version', 'page_size', 'tagline', 'theme', 'title'),
         'terms.write' => array('expected_version', 'id', 'kind', 'name', 'slug'),

@@ -9,11 +9,13 @@
 		terms: [],
 		media: [],
 		settings: null,
+		overview: null,
+		filter: { status: '', q: '' },
 		dirty: false,
 		busy: false,
 		pending: null,
 		cursor: '',
-		view: 'articles',
+		view: 'dashboard',
 		reauthenticate: false,
 		focusTarget: null,
 	};
@@ -478,10 +480,11 @@
 	}
 	function view( name ) {
 		state.view = name;
-		[ 'articles', 'editor', 'media', 'settings' ].forEach(
+		[ 'dashboard', 'articles', 'editor', 'media', 'settings' ].forEach(
 			( id ) => ( $( id + '-view' ).hidden = id !== name )
 		);
 		$( 'breadcrumb' ).textContent = {
+			dashboard: 'Dashboard',
 			articles: 'Articles',
 			editor: 'Article editor',
 			media: 'Media',
@@ -498,43 +501,169 @@
 		sync();
 		focusAfter( name === 'editor' ? $( 'article-title' ) : $( 'main' ) );
 	}
+	const statusFilters = [
+		{ status: '', label: 'All' },
+		{ status: 'published', label: 'Published' },
+		{ status: 'draft', label: 'Drafts' },
+		{ status: 'scheduled', label: 'Scheduled' },
+	];
+	function articleRow( article ) {
+		const row = node( 'div', undefined, 'article-row' );
+		const body = node( 'div', undefined, 'article-main' );
+		const title = node( 'h2' );
+		title.append(
+			button(
+				article.title || 'Untitled article',
+				() => openArticle( article.id ),
+				'article-link'
+			)
+		);
+		body.append( title );
+		const scheduled =
+			article.schedule_status === 'pending' && article.scheduled_at;
+		const meta = [];
+		const names = ( kind ) =>
+			article.terms
+				.filter( ( term ) => term.kind === kind )
+				.map( ( term ) => term.name );
+		const categories = names( 'category' );
+		const tags = names( 'tag' );
+		if ( categories.length )
+			meta.push( 'Categories: ' + categories.join( ', ' ) );
+		if ( tags.length ) meta.push( 'Tags: ' + tags.join( ', ' ) );
+		if ( scheduled )
+			meta.push(
+				'Goes live ' +
+					new Date( article.scheduled_at ).toLocaleString()
+			);
+		meta.push( new Date( article.updated_at ).toLocaleDateString() );
+		body.append( node( 'p', meta.join( ' · ' ), 'article-meta' ) );
+		const side = node( 'div', undefined, 'article-side' );
+		side.append(
+			node(
+				'span',
+				article.status === 'published'
+					? 'Published'
+					: scheduled
+					? 'Scheduled'
+					: 'Draft',
+				'status-label' +
+					( article.status === 'published'
+						? ' published'
+						: scheduled
+						? ' pending'
+						: '' )
+			)
+		);
+		const actions = node( 'div', undefined, 'row-actions' );
+		actions.append(
+			button( 'Edit', () => openArticle( article.id ), 'text-button' )
+		);
+		if ( article.status === 'published' ) {
+			const preview = node( 'a', 'View' );
+			preview.href = '/preview/' + article.id;
+			preview.target = '_blank';
+			preview.rel = 'noopener';
+			actions.append( preview );
+		}
+		side.append( actions );
+		row.append( body, side );
+		return row;
+	}
+	function renderFilters() {
+		if ( ! state.overview ) return;
+		const total = state.overview.draft + state.overview.published;
+		$( 'article-filters' ).replaceChildren();
+		statusFilters.forEach( ( filter ) => {
+			const count =
+				filter.status === ''
+					? total
+					: state.overview[ filter.status ];
+			const control = button(
+				filter.label + ' (' + count + ')',
+				async () => {
+					if ( ! canLeave() ) return;
+					state.filter.status = filter.status;
+					state.cursor = '';
+					state.dirty = false;
+					await listArticles();
+				},
+				'filter-tab'
+			);
+			if ( state.filter.status === filter.status )
+				control.setAttribute( 'aria-current', 'page' );
+			$( 'article-filters' ).append( control );
+		} );
+	}
+	async function loadOverview() {
+		state.overview = await platform( 'overview.read' );
+		renderFilters();
+	}
 	async function listArticles( cursor = '' ) {
-		const result = await platform( 'articles.list', { cursor } );
-		if ( ! cursor ) $( 'articles-list' ).replaceChildren();
+		const result = await platform( 'articles.list', {
+			cursor,
+			q: state.filter.q,
+			status: state.filter.status,
+		} );
+		if ( ! cursor ) {
+			$( 'articles-list' ).replaceChildren();
+			renderFilters();
+		}
 		if ( ! result.items.length && ! cursor )
 			$( 'articles-list' ).append(
+				node(
+					'p',
+					state.filter.q || state.filter.status
+						? 'No articles match this filter.'
+						: 'No articles yet. Create your first draft.',
+					'empty-state'
+				)
+			);
+		result.items.forEach( ( article ) => {
+			$( 'articles-list' ).append( articleRow( article ) );
+		} );
+		state.cursor = result.items.at( -1 )?.id || '';
+		$( 'older-articles' ).hidden = result.items.length < 25;
+	}
+	async function dashboardView() {
+		const [ overview, recent ] = await Promise.all( [
+			platform( 'overview.read' ),
+			platform( 'articles.list', { cursor: '', q: '', status: '' } ),
+		] );
+		state.overview = overview;
+		const total = overview.draft + overview.published;
+		$( 'glance-list' ).replaceChildren();
+		const glance = node( 'ul', undefined, 'glance' );
+		[
+			[ total + ' articles', 'articles', '' ],
+			[ overview.published + ' published', 'articles', 'published' ],
+			[ overview.draft + ' drafts', 'articles', 'draft' ],
+			[ overview.scheduled + ' scheduled', 'articles', 'scheduled' ],
+			[ overview.media + ' media items', 'media', '' ],
+			[ overview.terms + ' categories and tags', 'settings', '' ],
+		].forEach( ( [ label, target, status ] ) => {
+			const item = node( 'li' );
+			const link = button( label, () =>
+				navigate( target, status )
+			);
+			item.append( link );
+			glance.append( item );
+		} );
+		$( 'glance-list' ).append( glance );
+		$( 'recent-list' ).replaceChildren();
+		if ( ! recent.items.length )
+			$( 'recent-list' ).append(
 				node(
 					'p',
 					'No articles yet. Create your first draft.',
 					'empty-state'
 				)
 			);
-		result.items.forEach( ( article ) => {
-			const row = node( 'div', undefined, 'article-row' );
-			const title = node( 'h2' );
-			title.append(
-				button(
-					article.title || 'Untitled article',
-					() => openArticle( article.id ),
-					'article-link'
-				)
+		recent.items
+			.slice( 0, 5 )
+			.forEach( ( article ) =>
+				$( 'recent-list' ).append( articleRow( article ) )
 			);
-			row.append(
-				title,
-				node(
-					'span',
-					article.status === 'published' ? 'Published' : 'Draft',
-					'status-label'
-				),
-				node(
-					'time',
-					new Date( article.updated_at ).toLocaleDateString()
-				)
-			);
-			$( 'articles-list' ).append( row );
-		} );
-		state.cursor = result.items.at( -1 )?.id || '';
-		$( 'older-articles' ).hidden = result.items.length < 25;
 	}
 	async function loadEditor( article ) {
 		// Parse before replacing the current buffer; unsupported documents never lose their source.
@@ -748,8 +877,8 @@
 			sync();
 			notice( 'Session renewed. Your unsaved draft has been retained.' );
 		} else {
-			view( 'articles' );
-			await listArticles();
+			view( 'dashboard' );
+			await dashboardView();
 		}
 	}
 	const on = ( id, event, action ) =>
@@ -776,22 +905,43 @@
 		await request( '/v1/session', 'DELETE' );
 		location.reload();
 	} );
+	async function navigate( target, status = null ) {
+		if ( ! canLeave() ) return;
+		if ( target === 'articles' ) {
+			if ( status !== null ) {
+				state.filter.status = status;
+				state.filter.q = '';
+				$( 'search-articles' ).value = '';
+				state.cursor = '';
+			}
+			await Promise.all( [ listArticles(), loadOverview() ] );
+		}
+		if ( target === 'dashboard' ) await dashboardView();
+		if ( target === 'media' ) await mediaView();
+		if ( target === 'settings' ) await settingsView();
+		state.dirty = false;
+		view( target );
+		notice( '' );
+	}
 	document.querySelectorAll( '[data-view]' ).forEach( ( control ) =>
 		control.addEventListener( 'click', () =>
-			task( async () => {
-				if ( ! canLeave() ) return;
-				const target = control.dataset.view;
-				if ( target === 'articles' ) await listArticles();
-				if ( target === 'media' ) await mediaView();
-				if ( target === 'settings' ) await settingsView();
-				state.dirty = false;
-				view( target );
-				notice( '' );
-			} )
+			task( () => navigate( control.dataset.view ) )
 		)
 	);
-	on( 'new-article', 'click', async () => {
-		if ( canLeave() ) await loadEditor( null );
+	[ 'new-article', 'new-article-top' ].forEach( ( id ) =>
+		on( id, 'click', async () => {
+			if ( canLeave() ) await loadEditor( null );
+		} )
+	);
+	on( 'article-search', 'submit', async () => {
+		if ( ! canLeave() ) return;
+		let query = $( 'search-articles' ).value.trim();
+		while ( bytes( query ) > 64 ) query = query.slice( 0, -1 );
+		$( 'search-articles' ).value = query;
+		state.filter.q = query;
+		state.cursor = '';
+		state.dirty = false;
+		await listArticles();
 	} );
 	on( 'older-articles', 'click', () => listArticles( state.cursor ) );
 	$( 'article-title' ).addEventListener( 'input', dirty );

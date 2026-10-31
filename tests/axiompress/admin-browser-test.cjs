@@ -60,7 +60,9 @@ const path = require( 'node:path' );
 		await page
 			.getByRole( 'button', { name: 'Articles', exact: true } )
 			.click();
+		await page.locator( '#articles-view' ).waitFor( { state: 'visible' } );
 		await page
+			.locator( '#articles-view' )
 			.getByRole( 'button', { name: 'New article', exact: true } )
 			.click();
 		await page.locator( '#editor-view' ).waitFor( { state: 'visible' } );
@@ -321,8 +323,154 @@ const path = require( 'node:path' );
 			( await publicSite.text() ).includes( 'Canvas acceptance site' )
 		);
 		await page
+			.getByRole( 'button', { name: 'Dashboard', exact: true } )
+			.click();
+		await page.locator( '#dashboard-view' ).waitFor( { state: 'visible' } );
+		const glance = await page.locator( '#glance-list' ).textContent();
+		for ( const section of [
+			'articles',
+			'published',
+			'drafts',
+			'scheduled',
+			'media items',
+			'categories and tags',
+		] )
+			check( glance.includes( section ) );
+		check(
+			( await page.locator( '#recent-list .article-row' ).count() ) >=
+				2
+		);
+		await page
 			.getByRole( 'button', { name: 'Articles', exact: true } )
 			.click();
+		await page.locator( '#articles-view' ).waitFor( { state: 'visible' } );
+		const tabCount = async ( label ) => {
+			const text = await page
+				.getByRole( 'button', {
+					name: new RegExp( '^' + label + ' \\(\\d+\\)$' ),
+				} )
+				.textContent();
+			return Number( text.match( /\((\d+)\)/ )[ 1 ] );
+		};
+		const tabCounts = {
+			All: await tabCount( 'All' ),
+			Published: await tabCount( 'Published' ),
+			Drafts: await tabCount( 'Drafts' ),
+			Scheduled: await tabCount( 'Scheduled' ),
+		};
+		check( tabCounts.All >= 2 );
+		check(
+			tabCounts.All ===
+				tabCounts.Published + tabCounts.Drafts
+		);
+		const rowsAre = ( expected ) =>
+			page.waitForFunction(
+				( count ) =>
+					document.querySelectorAll(
+						'#articles-list .article-row'
+					).length === count,
+				expected
+			);
+		const emptyIs = () =>
+			page.waitForFunction( () =>
+				document
+					.getElementById( 'articles-list' )
+					.textContent.includes(
+						'No articles match this filter.'
+					)
+			);
+		const openTab = async ( label ) => {
+			await page
+				.getByRole( 'button', {
+					name: new RegExp( '^' + label + ' \\(\\d+\\)$' ),
+				} )
+				.click();
+			if ( tabCounts[ label ] === 0 ) await emptyIs();
+			else await rowsAre( tabCounts[ label ] );
+			check( true );
+		};
+		check(
+			( await page
+				.getByRole( 'link', { name: 'View', exact: true } )
+				.count() ) >= 1
+		);
+		await page
+			.locator( '#articles-view' )
+			.getByRole( 'button', { name: 'New article', exact: true } )
+			.click();
+		await page.locator( '#editor-view' ).waitFor( { state: 'visible' } );
+		await page
+			.getByLabel( 'Article title', { exact: true } )
+			.fill( 'Term probe' );
+		await page
+			.getByRole( 'button', { name: 'Save draft', exact: true } )
+			.click();
+		await page.waitForFunction(
+			() =>
+				document.getElementById( 'notice' ).textContent ===
+				'Draft saved.'
+		);
+		await page
+			.getByRole( 'checkbox', { name: termName, exact: true } )
+			.check();
+		await page
+			.getByRole( 'button', {
+				name: 'Apply categories and tags',
+				exact: true,
+			} )
+			.click();
+		await page.waitForFunction(
+			() => ! document.body.hasAttribute( 'aria-busy' )
+		);
+		check(
+			( await page.locator( '#notice' ).textContent() ) ===
+				'Draft saved.'
+		);
+		await page
+			.getByRole( 'button', { name: 'Articles', exact: true } )
+			.click();
+		await page.locator( '#articles-view' ).waitFor( { state: 'visible' } );
+		const probeRow = page.locator( '.article-row', {
+			has: page.getByRole( 'button', {
+				name: 'Term probe',
+				exact: true,
+			} ),
+		} );
+		check( ( await probeRow.count() ) === 1 );
+		check(
+			( await probeRow
+				.locator( '.article-meta' )
+				.textContent() ).includes( 'Field notes' )
+		);
+		tabCounts.Drafts = await tabCount( 'Drafts' );
+		tabCounts.All = await tabCount( 'All' );
+		await openTab( 'Drafts' );
+		await openTab( 'Scheduled' );
+		await openTab( 'Published' );
+		await page
+			.getByLabel( 'Search articles by title', { exact: true } )
+			.fill( 'canvas' );
+		await page
+			.getByRole( 'button', { name: 'Search', exact: true } )
+			.click();
+		await rowsAre( 1 );
+		check( true );
+		await page
+			.getByLabel( 'Search articles by title', { exact: true } )
+			.fill( 'no such title anywhere' );
+		await page
+			.getByRole( 'button', { name: 'Search', exact: true } )
+			.click();
+		await emptyIs();
+		check( true );
+		await page
+			.getByLabel( 'Search articles by title', { exact: true } )
+			.fill( '' );
+		await page
+			.getByRole( 'button', { name: 'Search', exact: true } )
+			.click();
+		await rowsAre( tabCounts.Published );
+		check( true );
 		await page
 			.getByRole( 'button', {
 				name: 'The writing canvas <test>',

@@ -85,6 +85,24 @@ final class PackageBuilder
         }
     }
 
+    /** Inspect an operator-built artifact without rebuilding it. */
+    public static function inspectImage(string $artifact): array
+    {
+        if (!preg_match('/\Asha256:[a-f0-9]{64}\z/D', $artifact)) {
+            throw new RuntimeException('Approved artifact identifier required.');
+        }
+        $image = json_decode(
+            self::command(array('docker', 'image', 'inspect', $artifact)),
+            true,
+            32,
+            JSON_THROW_ON_ERROR
+        );
+        if (!is_array($image) || !isset($image[0]) || !is_array($image[0])) {
+            throw new RuntimeException('Artifact inspection failed.');
+        }
+        return $image[0];
+    }
+
     /** Only the random operator-owned client directory created above; never follow symlinks. */
     private static function removeClientState(string $directory): void
     {

@@ -6,6 +6,7 @@ use AxiomPress\Policy\AuditLog;
 use AxiomPress\Policy\ImageBinding;
 use AxiomPress\Policy\Package;
 use AxiomPress\Policy\PolicyStore;
+use AxiomPress\Policy\PublisherApproval;
 use AxiomPress\Broker\InvocationRegistry;
 
 require __DIR__ . '/bootstrap.php';
@@ -96,8 +97,40 @@ try {
     $bad['Config']['Labels']['dev.axiompress.package.digest'] = str_repeat('0', 64);
     $reject(fn() => ImageBinding::inspect($package, $bad, $sdk));
     $store = new PolicyStore($directory . '/policy.sqlite');
-    $store->register($binding);
-    $store->register($binding);
+    $publisherKey = openssl_pkey_new(
+        array('private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA)
+    );
+    if ($publisherKey === false) {
+        throw new LogicException('Test publisher key generation failed.');
+    }
+    $publisherDetails = openssl_pkey_get_details($publisherKey);
+    if (!is_array($publisherDetails) || !isset($publisherDetails['key'])) {
+        throw new LogicException('Test publisher key export failed.');
+    }
+    $publisherPem = $publisherDetails['key'];
+    $publisherId = $store->addPublisher($publisherPem);
+    $check($publisherId === PublisherApproval::keyIdFor($publisherPem));
+    $check(count($store->listPublishers()) === 1);
+    $sign = static function (ImageBinding $target) use ($publisherKey, $publisherPem): array {
+        if (
+            !openssl_sign(
+                PublisherApproval::canonicalBytes($target),
+                $signature,
+                $publisherKey,
+                OPENSSL_ALGO_SHA256
+            )
+        ) {
+            throw new LogicException('Test publisher signing failed.');
+        }
+        return array(
+            'algorithm' => 'rsa2048-sha256',
+            'public_key' => $publisherPem,
+            'signature' => base64_encode($signature),
+        );
+    };
+    $envelope = $sign($binding);
+    $store->register($binding, $envelope);
+    $store->register($binding, $envelope);
     $store->create('plugin-a', 'site:1', $image);
     $check($store->generation('plugin-a', 'site:1', $image) === null);
     $check((int) $store->describe('plugin-a', 'site:1')['generation'] === 1);
@@ -124,11 +157,11 @@ try {
     $check($reader->generation('plugin-a', 'site:1', $image) === 4);
     $reject(fn() => $reader->create('readonly', 'site:1', $image));
     $reject(fn() => $reader->change('plugin-a', 4, false, array(), $image));
-    $reject(fn() => $reader->register($binding));
+    $reject(fn() => $reader->register($binding, $envelope));
     $other = $inspection;
     $other['Id'] = 'sha256:' . str_repeat('c', 64);
     $otherBinding = ImageBinding::inspect($package, $other, $sdk);
-    $store->register($otherBinding);
+    $store->register($otherBinding, $sign($otherBinding));
     $check($store->change('plugin-a', 4, true, array('content.read'), $otherBinding->image) === 5);
     $check($reader->generation('plugin-a', 'site:1', $image) === null);
     $check($reader->resolve('plugin-a', 'site:1')['image'] === $otherBinding->image);
@@ -143,8 +176,8 @@ try {
     $conflict = $inspection;
     $conflict['Config']['Labels']['dev.axiompress.package.digest'] = $changedPackage->digest;
     $conflictingBinding = ImageBinding::inspect($changedPackage, $conflict, $sdk);
-    $reject(fn() => $store->register($conflictingBinding));
-    $store->register($binding);
+    $reject(fn() => $store->register($conflictingBinding, $sign($conflictingBinding)));
+    $store->register($binding, $envelope);
     $check(true);
     $reject(fn() => ImageBinding::inspect($package, $inspection, 'sha256:' . str_repeat('d', 64)));
     $unknown = new PDO('sqlite:' . $directory . '/unknown.sqlite');
@@ -162,7 +195,7 @@ try {
     $differentImage['Config']['Labels']['dev.axiompress.package.digest'] = $differentPackage->digest;
     $differentImage['Config']['Labels']['dev.axiompress.manifest.digest'] = $differentPackage->manifestDigest;
     $differentBinding = ImageBinding::inspect($differentPackage, $differentImage, $sdk);
-    $store->register($differentBinding);
+    $store->register($differentBinding, $sign($differentBinding));
     $reject(fn() => $store->change('plugin-a', 6, true, array('content.read'), $differentBinding->image));
     $check((int) $reader->describe('plugin-a', 'site:1')['generation'] === 6);
     $check($store->change('plugin-a', 6, true, array('content.read'), $image) === 7);
@@ -170,7 +203,8 @@ try {
     $check($reader->generation('plugin-a', 'site:1', $otherBinding->image) === null);
     $reject(fn() => $registry->context('test', $handle));
     $legacyStore = new PolicyStore($directory . '/legacy.sqlite');
-    $legacyStore->register($binding);
+    $legacyStore->addPublisher($publisherPem);
+    $legacyStore->register($binding, $sign($binding));
     $legacyStore->create('legacy', 'site:1', $image);
     $legacyStore->change('legacy', 1, true, array('content.read'), $image);
     unset($legacyStore);
@@ -183,6 +217,55 @@ try {
     $check($convertedReader->generation('legacy', 'site:1', $image) === 2);
     $legacy = new PDO('sqlite:' . $directory . '/legacy.sqlite');
     $check($legacy->query('PRAGMA journal_mode')->fetchColumn() === 'delete');
+    $rogueKey = openssl_pkey_new(
+        array('private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA)
+    );
+    $rogueDetails = openssl_pkey_get_details($rogueKey);
+    $rogueSign = static function (ImageBinding $target) use ($rogueKey, $rogueDetails): array {
+        if (
+            !openssl_sign(
+                PublisherApproval::canonicalBytes($target),
+                $signature,
+                $rogueKey,
+                OPENSSL_ALGO_SHA256
+            )
+        ) {
+            throw new LogicException('Rogue publisher signing failed.');
+        }
+        return array(
+            'algorithm' => 'rsa2048-sha256',
+            'public_key' => $rogueDetails['key'],
+            'signature' => base64_encode($signature),
+        );
+    };
+    $reject(fn() => $store->register($binding, $rogueSign($binding)));
+    $reject(fn() => $store->register($binding, $sign($otherBinding)));
+    $reject(fn() => $store->register($binding, array()));
+    $reject(fn() => $store->register($binding, array('algorithm' => 'rsa2048-sha256',
+        'public_key' => $publisherPem, 'signature' => '!!!')));
+    $shortKey = openssl_pkey_new(
+        array('private_key_bits' => 1024, 'private_key_type' => OPENSSL_KEYTYPE_RSA)
+    );
+    $reject(fn() => $store->addPublisher(openssl_pkey_get_details($shortKey)['key']));
+    $ellipticKey = openssl_pkey_new(
+        array('private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1')
+    );
+    $reject(fn() => $store->addPublisher(openssl_pkey_get_details($ellipticKey)['key']));
+    $reject(fn() => $store->revokePublisher('bogus'));
+    $store->revokePublisher($publisherId);
+    $publishers = $store->listPublishers();
+    $check(
+        count($publishers) === 1 && $publishers[0]['key_id'] === $publisherId
+        && (int) $publishers[0]['revoked'] === 1
+    );
+    $reject(fn() => $store->register($binding, $sign($binding)));
+    $untrusted = new PDO('sqlite:' . $directory . '/policy.sqlite');
+    $untrusted->exec("INSERT INTO images VALUES('sha256:" . str_repeat('f', 64) . "', '" .
+        $package->digest . "', '" . $package->manifestDigest . "', '" . $package->pluginId . "', '" .
+        $package->version . "', 'sha256:" . str_repeat('b', 64) . "', NULL)");
+    unset($untrusted);
+    $store->create('legacy-image', 'site:9', 'sha256:' . str_repeat('f', 64));
+    $check($store->describe('legacy-image', 'site:9')['image'] === 'sha256:' . str_repeat('f', 64));
     $auditDir = '/tmp/axiompress-audit-test-' . bin2hex(random_bytes(12));
     mkdir($auditDir, 0700);
     $auditPath = $auditDir . '/audit.jsonl';
@@ -305,6 +388,42 @@ try {
     $check($status === 0);
     $auditLines = explode("\n", trim(file_get_contents($directory . '/cli-audit.jsonl')));
     $check(count($auditLines) === 3 && json_decode(end($auditLines), true)['result_generation'] === 9);
+    [$status, $output] = $cli('publisher-list');
+    $listed = json_decode($output, true);
+    $check(
+        $status === 0 && count($listed) === 1 && $listed[0]['key_id'] === $publisherId
+        && (int) $listed[0]['revoked'] === 1
+    );
+    $secondKey = openssl_pkey_new(
+        array('private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA)
+    );
+    $secondDetails = openssl_pkey_get_details($secondKey);
+    file_put_contents($directory . '/publisher.pem', $secondDetails['key']);
+    [$status, $output] = $cli('publisher-add', $directory . '/publisher.pem');
+    $addedId = json_decode($output, true)['key_id'];
+    $check($status === 0 && $addedId === PublisherApproval::keyIdFor($secondDetails['key']));
+    $auditLines = explode("\n", trim(file_get_contents($directory . '/cli-audit.jsonl')));
+    $addedEntry = json_decode(end($auditLines), true);
+    $check(
+        count($auditLines) === 4 && $addedEntry['outcome'] === 'applied'
+        && $addedEntry['action'] === 'publisher-add' && $addedEntry['key_id'] === $addedId
+    );
+    [$status] = $cli('publisher-add', $directory . '/publisher.pem');
+    $check($status !== 0);
+    $auditLines = explode("\n", trim(file_get_contents($directory . '/cli-audit.jsonl')));
+    $rejectedEntry = json_decode(end($auditLines), true);
+    $check(
+        count($auditLines) === 5 && $rejectedEntry['outcome'] === 'rejected'
+        && $rejectedEntry['action'] === 'publisher-add'
+    );
+    [$status, $output] = $cli('publisher-revoke', $addedId);
+    $check($status === 0 && json_decode($output, true)['revoked'] === true);
+    $auditLines = explode("\n", trim(file_get_contents($directory . '/cli-audit.jsonl')));
+    $check(
+        count($auditLines) === 6 && json_decode(end($auditLines), true)['action'] === 'publisher-revoke'
+    );
+    [$status] = $cli('publisher-revoke', 'bogus');
+    $check($status !== 0);
     putenv('AXIOM_POLICY_AUDIT_FILE=' . $directory . '/cli-rotating.jsonl');
     putenv('AXIOM_POLICY_AUDIT_MAX_BYTES=5000');
     putenv('AXIOM_POLICY_AUDIT_MAX_ARCHIVES=2');
@@ -341,7 +460,7 @@ try {
     foreach (
         array('policy.sqlite', 'policy.sqlite-wal', 'policy.sqlite-shm', 'unknown.sqlite',
         'legacy.sqlite', 'legacy.sqlite-wal', 'legacy.sqlite-shm', 'cli-audit.jsonl',
-        'cli-rotating.jsonl') as $name
+        'cli-rotating.jsonl', 'publisher.pem') as $name
     ) {
         if (is_file($directory . '/' . $name)) {
             unlink($directory . '/' . $name);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use AxiomPress\Policy\AuditLog;
 use AxiomPress\Policy\PolicyStore;
+use AxiomPress\Policy\PublisherApproval;
 
 require __DIR__ . '/bootstrap.php';
 $command = $argv[1] ?? '';
@@ -28,16 +29,53 @@ if (($rawArchives = getenv('AXIOM_POLICY_AUDIT_MAX_ARCHIVES')) !== false && $raw
     }
 }
 $audit = $auditPath === '' ? null : AuditLog::open($auditPath, $auditMaxBytes, $auditMaxArchives);
-$expectedCount = array('describe' => 4, 'disable' => 5, 'approve-read' => 6);
+$expectedCount = array('describe' => 4, 'disable' => 5, 'approve-read' => 6,
+    'publisher-add' => 3, 'publisher-list' => 2, 'publisher-revoke' => 3);
 if (
     !isset($expectedCount[$command]) || count($argv) !== $expectedCount[$command]
     || !str_starts_with($policyFile, '/') || !is_file($policyFile)
 ) {
     throw new RuntimeException(
-        'Use describe ID SITE, disable ID SITE GENERATION, or approve-read ID SITE GENERATION IMAGE.'
+        'Use describe ID SITE, disable ID SITE GENERATION, approve-read ID SITE GENERATION IMAGE,' .
+        ' publisher-add PUBLIC_KEY_FILE, publisher-list, or publisher-revoke KEY_ID.'
     );
 }
-$store = new PolicyStore($policyFile, $command === 'describe');
+$store = new PolicyStore($policyFile, $command === 'describe' || $command === 'publisher-list');
+if ($command === 'publisher-list') {
+    echo json_encode($store->listPublishers(), JSON_THROW_ON_ERROR) . "\n";
+    return;
+}
+if ($command === 'publisher-add' || $command === 'publisher-revoke') {
+    if ($command === 'publisher-revoke') {
+        $keyId = $argv[2];
+        $mutation = static function () use ($store, $keyId): string {
+            $store->revokePublisher($keyId);
+            return $keyId;
+        };
+    } else {
+        $path = $argv[2];
+        if (!is_file($path) || is_link($path) || filesize($path) === false || filesize($path) > 4096) {
+            throw new RuntimeException('Operator-owned publisher key file required.');
+        }
+        $publicKey = file_get_contents($path);
+        if (!is_string($publicKey)) {
+            throw new RuntimeException('Operator-owned publisher key file required.');
+        }
+        $keyId = PublisherApproval::keyIdFor($publicKey);
+        $mutation = static fn() => $store->addPublisher($publicKey);
+    }
+    if ($audit === null) {
+        $mutation();
+    } else {
+        $audit->record($mutation, array('action' => $command, 'key_id' => $keyId));
+    }
+    $receipt = array('key_id' => $keyId);
+    if ($command === 'publisher-revoke') {
+        $receipt['revoked'] = true;
+    }
+    echo json_encode($receipt, JSON_THROW_ON_ERROR) . "\n";
+    return;
+}
 $record = $store->describe($argv[2], $argv[3]);
 if ($record === null) {
     throw new RuntimeException('Unknown installation/site.');

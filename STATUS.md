@@ -15,7 +15,9 @@ Image scheduling now has a hardened installer for an inactive systemd service an
 ## Resume here
 
 1. Return to the incomplete publishing platform work. Done in this cycle: smaller proof bundle and verified package-update mechanics. Still open: production editor mounting and production CSP, media selection inside the proof editor (the native workspace already selects prepared images; the proof allows only paragraphs and headings by design), per-installation plugin storage (denied by explicit scope decision on 2026-10-31; the architecture exclusion stands), a site-administrator update interface, and audit retention, deletion and read access control (append-only retention with capacity enforcement and count-budgeted rotation is implemented; recovery is implemented). The proof editor embeds already-published site images; uploads still go through the native workspace or API first. Administration and Gutenberg proof suites pass against the disposable site. Review feature scope before retiring any inherited workflow.
-2. Complete production acceptance for the image-processing timer: automatic media runtime delegation, restart behavior on a supported host, signed distribution and independent security review. Blocked on a supported VPS host, release signing infrastructure with trusted keys, and independent reviewers. Keep installation inactive until explicit operator action.
+2. Familiar administration shell, first slice complete (uncommitted): a Dashboard home view with an at-a-glance overview and recent articles, article status tabs (All/Published/Drafts/Scheduled) with live counts, title search, per-row taxonomy snapshot, scheduled badges and Edit/View row actions, backed by migration 0007 (`articles.list` accepts bounded `q`/`status`, rows carry the current-revision taxonomy, new `overview.read` counts) and extended PHP and Chrome coverage. Observed anomaly under investigation: in the disposable browser run the list order did not match creation order despite `ORDER BY id DESC` over sequence-generated ids (fixture rows rendered ahead of newer rows while all filtering, counts and terms rendered correctly). The admin acceptance assertions were rewritten to locate rows by title instead of position; no pagination or data defect is proven and none is claimed. Verification on 2026-10-31: `composer lint:axiompress`, protocol (252), broker (45), blocks (32), parser (8) clean; database suites pass (51 migration, 72 authentication, 56 content, 43 public-read, 36 jobs, 23 media, 40 platform); Chrome admin acceptance passes 37 checks and the Gutenberg proof 30 checks without media fixtures. One editor-proof timeout and the earlier admin ordering observation each passed or were isolated on re-run with no product change.
+4. Full-page Gutenberg editor slice complete (uncommitted, proof environment only): the proof mounts a reviewed three-block inserter menu, a collapsible block outline (via the pinned build's experimental list-view alias, recorded in the experiment doc), and a Document/Block sidebar with heading-level control, publication status and actions, schedule display, and taxonomy apply through native endpoints. Production mounting and the production CSP decision remain open; the proof keeps its development-only fixture CSP. Signed scope decisions for this stage (editor construction via reviewed adopted packages, staged navigation, core-subset-first blocks) are recorded in DECISIONS.md. Debugging notes: a `ListView` export that exists only under its experimental alias and a DOM text node passed as a React child were each caught by checks and fixed; two transient harness/editor timeouts at different steps passed on identical re-runs with no product change.
+3. Complete production acceptance for the image-processing timer: automatic media runtime delegation, restart behavior on a supported host, signed distribution and independent security review. Blocked on a supported VPS host, release signing infrastructure with trusted keys, and independent reviewers. Keep installation inactive until explicit operator action.
 
 ## Recorded verification
 
@@ -34,6 +36,37 @@ These are recorded results at the stated dates, not a claim that checks were rer
 ## Remaining release work
 
 Full administration/editor coverage, loss-aware data migration, PHP-FPM/PostgreSQL installation, signed distribution and updates, independent security review and supported-VPS acceptance remain unfinished. Local WSL2 evidence does not establish production acceptance. Data import support will not imply executable WordPress plugin or PHP theme compatibility.
+
+## Publisher approval for extension packages (2026-10-31, uncommitted)
+
+Every artifact registration now requires an RSA-2048/SHA-256 publisher signature
+over canonical binding bytes, verified against operator-approved, non-revoked
+publisher keys before the artifact is recorded. Schema v2 adds publishers and
+per-image publisher attribution; pre-signature rows keep working with no
+attribution. Key management (`publisher-add/list/revoke`) writes to the operator
+audit trail. Signing uses the operator `openssl` CLI and PHP `openssl_verify`,
+with no new dependencies. Proven by execution: policy suite 153 checks,
+direct-runtime suite 64 checks with real CLI-generated signatures verifying in
+PHP, live-supervisor bootstrap (ephemeral publisher on fresh volumes) and refusal
+of unsigned registration on reused volumes, plus the `--sign` flag guard.
+Since then, executed on 2026-10-31 in WSL against the current tree: the
+explicit-signature live path end to end (new `build-image.php` pre-builds the
+artifact without a daemon-side rebuild, `PackageBuilder::inspectImage()`
+pins the prebuilt image by `docker inspect`, the envelope is signed with the
+operator `openssl` CLI via `package.py sign_envelope`, and `setup-live.php`
+with `AXIOM_ARTIFACT` plus `AXIOM_SIGNATURE_JSON` registers generation 2 on a
+fresh volume; artifact-without-signature and signature-without-artifact are
+both refused), and the `register.php` signature-file wrapper (wrong argc, bad
+mode, missing file, and malformed JSON refusals, plus valid-envelope intake
+stopping at the direct-runtime control as designed; the register/create
+downstream runs in the 64-check suite). Execution also caught and fixed two
+defects: `build-image.php` missing its `PackageBuilder` require, and raw
+`JsonException` escaping `register.php` on malformed envelopes (now wrapped as
+a malformed-envelope refusal). Package digests are stable across rebuilds;
+only the image id changes, which is why prebuilt artifacts are inspected and
+never rebuilt during signing. Remaining: the full Windows live-check flow
+(no Windows Docker daemon on this host). Docker remains test tooling only;
+the deployed plugin path runs gVisor directly with no daemon in the loop.
 
 ## Authoritative references
 

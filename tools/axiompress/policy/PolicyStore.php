@@ -32,7 +32,7 @@ final class PolicyStore
         $this->db->exec('PRAGMA busy_timeout=2000; PRAGMA foreign_keys=ON');
         $version = (int) $this->db->query('PRAGMA user_version')->fetchColumn();
         if ($readOnly) {
-            if ($version !== 1) {
+            if ($version !== 2) {
                 throw new RuntimeException('Unsupported read-only policy schema.');
             }
             if ($this->db->query('PRAGMA journal_mode')->fetchColumn() !== 'delete') {
@@ -41,7 +41,7 @@ final class PolicyStore
             $this->db->exec('PRAGMA query_only=ON');
             return;
         }
-        if (!in_array($version, array(0, 1), true)) {
+        if (!in_array($version, array(0, 1, 2), true)) {
             throw new RuntimeException('Unsupported policy schema.');
         }
         if ($version === 0) {
@@ -54,14 +54,31 @@ final class PolicyStore
                     }
                     $this->db->exec('CREATE TABLE images (
                         image TEXT PRIMARY KEY, package_digest TEXT NOT NULL, manifest_digest TEXT NOT NULL,
-                        plugin_id TEXT NOT NULL, version TEXT NOT NULL, sdk_image TEXT NOT NULL
+                        plugin_id TEXT NOT NULL, version TEXT NOT NULL, sdk_image TEXT NOT NULL,
+                        publisher TEXT REFERENCES publishers(key_id)
                     ); CREATE TABLE installations (
                         installation TEXT PRIMARY KEY, site TEXT NOT NULL, image TEXT NOT NULL REFERENCES images(image),
                         generation INTEGER NOT NULL CHECK(generation > 0),
                         enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
                         read_grant INTEGER NOT NULL CHECK(read_grant IN (0,1))
-                    ); PRAGMA user_version=1');
+                    ); CREATE TABLE publishers (
+                        key_id TEXT PRIMARY KEY, public_key TEXT NOT NULL,
+                        revoked INTEGER NOT NULL DEFAULT 0 CHECK(revoked IN (0, 1))
+                    ); PRAGMA user_version=2');
                 }
+                $this->db->exec('COMMIT');
+            } catch (Throwable $error) {
+                $this->db->exec('ROLLBACK');
+                throw $error;
+            }
+        } elseif ($version === 1) {
+            $this->db->exec('BEGIN IMMEDIATE');
+            try {
+                $this->db->exec('CREATE TABLE publishers (
+                    key_id TEXT PRIMARY KEY, public_key TEXT NOT NULL,
+                    revoked INTEGER NOT NULL DEFAULT 0 CHECK(revoked IN (0, 1)))');
+                $this->db->exec('ALTER TABLE images ADD COLUMN publisher TEXT REFERENCES publishers(key_id)');
+                $this->db->exec('PRAGMA user_version=2');
                 $this->db->exec('COMMIT');
             } catch (Throwable $error) {
                 $this->db->exec('ROLLBACK');
@@ -76,14 +93,65 @@ final class PolicyStore
         $this->db->exec('PRAGMA synchronous=FULL');
     }
 
-    public function register(ImageBinding $binding): void
+    public function addPublisher(string $publicKey): string
     {
         $this->writable();
+        $keyId = PublisherApproval::keyIdFor($publicKey);
+        $statement = $this->db->prepare('INSERT INTO publishers(key_id, public_key) VALUES(?, ?)');
+        $statement->execute(array($keyId, $publicKey));
+        return $keyId;
+    }
+
+    public function revokePublisher(string $keyId): void
+    {
+        $this->writable();
+        if (!preg_match('/\A[a-f0-9]{64}\z/', $keyId)) {
+            throw new RuntimeException('Unknown publisher key identifier.');
+        }
+        $statement = $this->db->prepare('UPDATE publishers SET revoked=1 WHERE key_id=?');
+        $statement->execute(array($keyId));
+        if ($statement->rowCount() !== 1) {
+            throw new RuntimeException('Unknown publisher key identifier.');
+        }
+    }
+
+    /** @return array<int, array{key_id: string, revoked: int}> */
+    public function listPublishers(): array
+    {
+        $rows = $this->db->query('SELECT key_id, revoked FROM publishers ORDER BY key_id')->fetchAll(PDO::FETCH_ASSOC);
+        return is_array($rows) ? $rows : array();
+    }
+
+    public function register(ImageBinding $binding, array $envelope): void
+    {
+        $this->writable();
+        $approval = PublisherApproval::fromEnvelope($envelope);
+        $keyId = $approval->keyId();
+        $publisher = $this->db->prepare('SELECT public_key, revoked FROM publishers WHERE key_id=?');
+        $publisher->execute(array($keyId));
+        $record = $publisher->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($record)) {
+            throw new RuntimeException('Unknown publisher key identifier.');
+        }
+        if ((int) $record['revoked'] !== 0) {
+            throw new RuntimeException('Publisher key is revoked.');
+        }
+        if (
+            openssl_verify(
+                PublisherApproval::canonicalBytes($binding),
+                $approval->signature(),
+                $record['public_key'],
+                OPENSSL_ALGO_SHA256
+            ) !== 1
+        ) {
+            throw new RuntimeException('Publisher signature is invalid.');
+        }
         $values = array($binding->image, $binding->package->digest, $binding->package->manifestDigest,
-            $binding->package->pluginId, $binding->package->version, $binding->sdkImage);
-        $statement = $this->db->prepare('INSERT OR IGNORE INTO images VALUES (?, ?, ?, ?, ?, ?)');
+            $binding->package->pluginId, $binding->package->version, $binding->sdkImage, $keyId);
+        $statement = $this->db->prepare('INSERT OR IGNORE INTO images VALUES (?, ?, ?, ?, ?, ?, ?)');
         $statement->execute($values);
-        $statement = $this->db->prepare('SELECT * FROM images WHERE image=?');
+        $statement = $this->db->prepare('SELECT image, package_digest, manifest_digest, plugin_id,' .
+            ' version, sdk_image, publisher FROM images WHERE image=?');
         $statement->execute(array($binding->image));
         if (array_values($statement->fetch(PDO::FETCH_ASSOC)) !== $values) {
             throw new RuntimeException('Immutable image binding conflict.');

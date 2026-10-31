@@ -181,6 +181,17 @@ final class AuditLog
 
     private function validateContext(array $context): void
     {
+        if (
+            in_array($context['action'] ?? null, array('publisher-add', 'publisher-revoke'), true)
+        ) {
+            if (
+                !isset($context['key_id']) || !is_string($context['key_id'])
+                || strlen($context['key_id']) > 128
+            ) {
+                throw new RuntimeException('Invalid audit context.');
+            }
+            return;
+        }
         $keys = array('action', 'installation', 'site', 'expected_generation', 'image', 'grants');
         foreach ($keys as $key) {
             if (!array_key_exists($key, $context)) {
@@ -206,12 +217,13 @@ final class AuditLog
             'ts' => gmdate('Y-m-d\TH:i:s\Z'),
             'uid' => function_exists('posix_geteuid') ? posix_geteuid() : getmyuid(),
             'action' => $context['action'],
-            'installation' => $context['installation'],
-            'site' => $context['site'],
-            'expected_generation' => $context['expected_generation'],
+            'installation' => $context['installation'] ?? '',
+            'site' => $context['site'] ?? '',
+            'expected_generation' => $context['expected_generation'] ?? 0,
             'result_generation' => $generation,
-            'image' => $context['image'],
-            'grants' => $context['grants'],
+            'image' => $context['image'] ?? '',
+            'grants' => $context['grants'] ?? '',
+            'key_id' => $context['key_id'] ?? '',
             'outcome' => $outcome,
             'error' => $error === null ? '' : self::diagnostic($error),
         );

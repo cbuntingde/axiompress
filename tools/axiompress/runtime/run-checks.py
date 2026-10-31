@@ -196,8 +196,20 @@ def main():
                 directory.mkdir(mode=0o700)
             sdk_digest = hashlib.sha256(json.dumps(runtime['inventory'](sdk), sort_keys=True,
                 separators=(',', ':')).encode()).hexdigest()
-            builder = runpy.run_path(str(code / 'runtime/package.py'))['build']
-            built = builder(sdk, sdk_digest, package, store, php)
+            builder = runpy.run_path(str(code / 'runtime/package.py'))
+            sign_envelope = builder['sign_envelope']
+            built = builder['build'](sdk, sdk_digest, package, store, php)
+            publisher_key = work / 'publisher.pem'
+            publisher_key.write_bytes(command(['openssl', 'genpkey', '-algorithm', 'RSA',
+                '-pkeyopt', 'rsa_keygen_bits:2048']).stdout)
+            os.chmod(publisher_key, 0o600)
+            publisher_public = work / 'publisher.pub'
+            publisher_public.write_bytes(command(['openssl', 'pkey', '-in', str(publisher_key),
+                '-pubout']).stdout)
+            signature = sign_envelope(plugin_id=built['plugin_id'], version=built['version'],
+                package_digest=built['package_digest'], manifest_digest=built['manifest_digest'],
+                artifact=built['artifact'], sdk_image='sha256:' + built['sdk_digest'],
+                key_path=publisher_key, public_key=publisher_public.read_text())
             hostile_package = work / 'hostile-package'
             hostile_package.mkdir(mode=0o700)
             manifest = json.loads((package / 'manifest.json').read_text())
@@ -205,7 +217,7 @@ def main():
             (hostile_package / 'manifest.json').write_text(json.dumps(manifest))
             shutil.copyfile(code / 'supervisor/worker.php', hostile_package / 'worker.php')
             protected_tree(hostile_package)
-            hostile = builder(sdk, sdk_digest, hostile_package, store, php)
+            hostile = builder['build'](sdk, sdk_digest, hostile_package, store, php)
             config = work / 'runtime.json'
             runtime['durable_json'](config, {'runsc': str(options.runsc), 'runsc_sha256': runtime['digest_file'](options.runsc),
                 'store': str(store), 'state': str(state), 'cgroup_parent': str(group)})
@@ -213,7 +225,8 @@ def main():
             test_config = work / 'test.json'
             runtime['durable_json'](test_config, {'config': str(config), 'package': str(package),
                 'artifact': built['artifact'], 'hostile_artifact': hostile['artifact'],
-                'policy': str(work / 'policy.sqlite'), 'admission': str(admission)})
+                'policy': str(work / 'policy.sqlite'), 'admission': str(admission),
+                'signature': signature})
             # PHP/control subprocesses have no Docker command on PATH. runsc is invoked by its
             # absolute approved path; every worker uses the direct runtime, not a Docker daemon.
             result = command([*php, str(ROOT / 'tests/axiompress/direct-runtime-test.php'), str(code), str(test_config)],

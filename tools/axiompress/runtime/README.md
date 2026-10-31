@@ -52,15 +52,36 @@ The controller currently runs as root and is part of the trusted host software. 
 
 Prepare an approved local SDK filesystem and record its inventory digest during trusted release preparation. Run `package.py --help` for the required SDK, digest, package and store arguments. Package validation reads and captures files; it never includes or executes plugin PHP. An immutable artifact identifies the SDK, package metadata and complete filesystem inventory.
 
-Register an artifact and create a disabled installation:
+Register an artifact and create a disabled installation. Registration requires a
+publisher signature: the operator signs the canonical binding bytes with an
+offline RSA-2048 key, approves that publisher key in the policy database, and
+passes the signature envelope to registration. Unsigned bytes are refused even
+when every other check passes.
 
 ```sh
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /etc/axiompress/publisher.pem
+chmod 600 /etc/axiompress/publisher.pem
+openssl pkey -in /etc/axiompress/publisher.pem -pubout -out /etc/axiompress/publisher.pub
+python3 /opt/axiompress/tools/axiompress/runtime/package.py \
+  --sdk SDK_DIRECTORY --sdk-digest SHA256_DIGEST --package PACKAGE_DIRECTORY \
+  --store /var/lib/axiompress/store --php /usr/bin/php8.5 \
+  --sign /etc/axiompress/publisher.pem --pubkey /etc/axiompress/publisher.pub \
+  > /var/lib/axiompress/approved.json
+export AXIOM_POLICY_FILE=/var/lib/axiompress/policy/installations.sqlite
+/usr/bin/php8.5 /opt/axiompress/tools/axiompress/policy/manage.php \
+  publisher-add /etc/axiompress/publisher.pub
 /usr/bin/php8.5 /opt/axiompress/tools/axiompress/runtime/register.php \
   /etc/axiompress/extensions.json sha256:ARTIFACT PACKAGE_DIRECTORY \
-  /var/lib/axiompress/policy/installations.sqlite INSTALLATION site:1 create
+  /var/lib/axiompress/policy/installations.sqlite INSTALLATION site:1 create \
+  /var/lib/axiompress/approved-signature.json
 ```
 
-Use the actual approved digest and package directory. The [installation policy](../policy/README.md) still applies. Set `AXIOM_POLICY_FILE` when using `policy/manage.php` outside its default container layout. Approval requires the current generation and artifact digest; creating or registering a package does not grant permission to run it.
+Use the actual approved digest and package directory; write the `signature` object
+from the approval output to the signature file passed to registration. The
+[installation policy](../policy/README.md) still applies. Set `AXIOM_POLICY_FILE`
+when using `policy/manage.php` outside its default container layout. Approval
+requires the current generation and artifact digest; creating or registering a
+package does not grant permission to run it.
 
 ## Extension service
 

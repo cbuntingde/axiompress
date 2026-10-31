@@ -13,8 +13,11 @@ use AxiomPress\Supervisor\Supervisor;
 require $argv[1] . '/policy/bootstrap.php';
 require $argv[1] . '/supervisor/Supervisor.php';
 
-if (PHP_VERSION_ID < 80500 || PHP_INT_SIZE !== 8 || !extension_loaded('pcntl')) {
-    throw new RuntimeException('64-bit PHP 8.5 with pcntl required.');
+if (
+    PHP_VERSION_ID < 80500 || PHP_INT_SIZE !== 8 || !extension_loaded('pcntl')
+    || !extension_loaded('openssl')
+) {
+    throw new RuntimeException('64-bit PHP 8.5 with pcntl and openssl required.');
 }
 $configuration = json_decode(file_get_contents($argv[2]), true, 8, JSON_THROW_ON_ERROR);
 $direct = new DirectRuntime($configuration['config']);
@@ -25,7 +28,12 @@ $binding = ImageBinding::fromBundle(
     $direct->describe($configuration['artifact'])
 );
 $policy = new PolicyStore($configuration['policy']);
-$policy->register($binding);
+$envelope = $configuration['signature'];
+if (!is_array($envelope)) {
+    throw new RuntimeException('Publisher signature envelope required.');
+}
+$policy->addPublisher($envelope['public_key']);
+$policy->register($binding, $envelope);
 $policy->create('direct-check', 'site:1', $binding->image);
 $checks = 0;
 $check = static function (bool $condition, string $label) use (&$checks): void {
